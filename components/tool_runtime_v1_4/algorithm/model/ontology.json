@@ -1,0 +1,116 @@
+{
+  "schema": "pnu.cam4.tool_ontology.v1",
+  "scope": "surgical-tool instance detection and segmentation for downstream 6D pose",
+  "class_freeze_status": "confirmed_8_surgical_tool_classes_2026_08_10",
+  "final_class_count": 8,
+  "id_policy": "canonical_id follows the existing prototype and ROS2 handoff IDs. Source dataset IDs are never interpreted without source_mappings.",
+  "canonical_tool_classes": [
+    {
+      "canonical_id": 1,
+      "canonical_name": "Scalpel",
+      "aliases": ["Scalpel", "Knife handle (Scalpel)", "#15 Scalpel"]
+    },
+    {
+      "canonical_id": 2,
+      "canonical_name": "Allis Forceps",
+      "aliases": ["Allis Forceps", "Allis clamp forceps", "Allis clamp"]
+    },
+    {
+      "canonical_id": 3,
+      "canonical_name": "Mosquito",
+      "aliases": ["Mosquito", "Mosquito Forceps", "Mosquito clamp"]
+    },
+    {
+      "canonical_id": 4,
+      "canonical_name": "Adson Forceps",
+      "aliases": ["Adson Forceps", "Adson forceps", "Adson"]
+    },
+    {
+      "canonical_id": 5,
+      "canonical_name": "Bipolar Forceps",
+      "aliases": ["Bipolar Forceps", "Bipolar Cautery", "Bipolar"]
+    },
+    {
+      "canonical_id": 6,
+      "canonical_name": "Bovie",
+      "aliases": ["Bovie", "Bovie surgical cautery", "Monopolar cautery pencil"]
+    },
+    {
+      "canonical_id": 7,
+      "canonical_name": "Army-Navy Retractor",
+      "aliases": ["Army-Navy Retractor", "Army navy retractor", "Army Navy"]
+    },
+    {
+      "canonical_id": 8,
+      "canonical_name": "Thyroid Retractor",
+      "aliases": ["Thyroid Retractor", "Thyroid retractor"]
+    }
+  ],
+  "excluded_source_classes": {
+    "policy": "Exclude from training labels, model output, evaluation, and ROS2 surgical-tool observations.",
+    "classes": [
+      {
+        "name": "Hand_request",
+        "meaning": "a hand/action state indicating a request for a tool"
+      },
+      {
+        "name": "Hand_Not_Request",
+        "meaning": "a hand/action state indicating no tool request"
+      },
+      {
+        "name": "Hand_with_tool",
+        "meaning": "a hand/tool interaction state; it does not identify the held tool"
+      }
+    ]
+  },
+  "source_mappings": {
+    "mayo_bbox_v5": [
+      {"source_id": 0, "source_name": "Adson forceps", "canonical_id": 4, "mapping_status": "provisional_name_equivalence"},
+      {"source_id": 1, "source_name": "Allis clamp forceps", "canonical_id": 2, "mapping_status": "name_only_zero_source_samples"},
+      {"source_id": 2, "source_name": "Bovie surgical cautery", "canonical_id": 6, "mapping_status": "provisional_name_and_visual_equivalence"},
+      {"source_id": 3, "source_name": "Army navy retractor", "canonical_id": 7, "mapping_status": "name_only_zero_source_samples"},
+      {"source_id": 4, "source_name": "Bipolar Cautery", "canonical_id": 5, "mapping_status": "provisional_name_and_visual_equivalence"},
+      {"source_id": 5, "source_name": "Mosquito", "canonical_id": 3, "mapping_status": "name_only_zero_source_samples"},
+      {"source_id": 6, "source_name": "Hand_request", "mapping_status": "excluded_non_tool"},
+      {"source_id": 7, "source_name": "Hand_Not_Request", "mapping_status": "excluded_non_tool"},
+      {"source_id": 8, "source_name": "Hand_with_tool", "mapping_status": "excluded_non_tool"},
+      {
+        "source_id": 9,
+        "source_name": "Thyroid retractor",
+        "canonical_id": 8,
+        "mapping_status": "confirmed_by_domain_reviewer_2026_08_10"
+      }
+    ]
+  },
+  "annotation_completeness": {
+    "required_status_field": "annotation_status",
+    "allowed_values": [
+      "verified_complete",
+      "verified_empty",
+      "partial_known",
+      "needs_second_review",
+      "excluded_ambiguous"
+    ],
+    "detector_training_eligible": ["verified_complete", "verified_empty"],
+    "rules": [
+      "Every visible instance of every canonical tool class must be annotated in an eligible image.",
+      "verified_empty means a human verified that no canonical tool is visible.",
+      "Hand source classes 6, 7, and 8 are discarded; any visible held surgical tool must still be annotated with its tool identity.",
+      "partial_known and needs_second_review are workflow statuses, never model classes, and are excluded from training until completed.",
+      "excluded_ambiguous is an image-level terminal exclusion for occlusion or motion cases whose class-specific geometry cannot be trusted.",
+      "SAM-family masks generated from boxes are pseudo-annotations and require independent mask QC."
+    ]
+  },
+  "instance_mask_policy": {
+    "general": [
+      "Annotate the visible rigid surgical-tool geometry only.",
+      "Never include the hand, glove, cable, drape, or background in a tool mask.",
+      "For an occluded tool, annotate only its visible tool pixels; do not hallucinate hidden geometry."
+    ],
+    "class_specific": {
+      "Scalpel": "Scalpel and Knife handle are the same canonical class; include the visible knife handle and attached blade as one rigid tool instance.",
+      "Bovie": "Include the rigid pencil body and electrode tip; exclude cable and hand.",
+      "Bipolar Forceps": "Include the visible rigid instrument; exclude cable and hand."
+    }
+  }
+}

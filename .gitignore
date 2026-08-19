@@ -1,0 +1,10 @@
+config/system.env
+external_assets/
+**/build/
+**/install/
+**/log/
+**/__pycache__/
+*.pth
+*.h5
+*.avi
+*.mcap

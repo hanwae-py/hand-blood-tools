@@ -1,0 +1,10 @@
+# Robot moves the suction tip to the blood pool the blood-detection node
+# localized, and suctions for up to duration_sec.
+geometry_msgs/PoseStamped target_pose
+float32 duration_sec
+---
+bool success
+string message
+---
+string stage
+float32 progress   # 0.0 .. 1.0

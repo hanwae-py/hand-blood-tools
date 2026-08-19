@@ -1,0 +1,10 @@
+# Robot hands the already-grasped tool to the surgeon's hand, at the palm
+# pose that hand_detection_node localized.
+string tool_name
+geometry_msgs/PoseStamped hand_pose
+---
+bool success
+string message
+---
+string stage
+float32 progress   # 0.0 .. 1.0

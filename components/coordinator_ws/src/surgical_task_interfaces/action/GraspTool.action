@@ -1,0 +1,12 @@
+# Robot picks up the tool the tool-detection node just localized.
+#
+# An action rather than a service or topic because this takes seconds, can
+# fail, and the coordinator must be able to cancel it (e.g. on ABORT).
+string tool_name
+geometry_msgs/PoseStamped tool_pose
+---
+bool success
+string message
+---
+string stage
+float32 progress   # 0.0 .. 1.0

@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="http://download.ros.org/schema/package_format3.xsd"?>
+<package format="3">
+  <name>surgical_task_coordinator</name>
+  <version>0.1.0</version>
+  <description>
+    Take-turn sequencer for the surgical robot: decides which ONE of the
+    three perception algorithms (tool detection, hand keypoints, blood
+    detection) may run at any moment, and drives the robot's grasp,
+    handover and suction operations between them.
+
+    Deliberately depends on none of the three algorithms -- it talks to them
+    only through the ROS 2 lifecycle interface and geometry_msgs/PoseStamped
+    results, so each team keeps its own repository, its own virtual
+    environment and its own dependencies.
+  </description>
+  <maintainer email="hannwaenyein2303@gmail.com">Han Nwae Nyein</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>surgical_task_interfaces</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

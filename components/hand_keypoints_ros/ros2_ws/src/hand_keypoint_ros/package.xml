@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="http://download.ros.org/schema/package_format3.xsd"?>
+<package format="3">
+  <name>hand_keypoint_ros</name>
+  <version>0.1.0</version>
+  <description>
+    Hand-detection ROS2 node: subscribes to camera color/depth/camera_info
+    topics, runs MediaPipe + (real or monocular) depth backprojection +
+    palm-6D pose, publishes hand keypoints. This is "section 2" (the
+    detection node) of the camera -> detection -> TF -> robot flow;
+    coordinate-frame transforms and robot control are out of scope here.
+  </description>
+  <maintainer email="hannwaenyein2303@gmail.com">Han Nwae Nyein</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>hand_keypoint_interfaces</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

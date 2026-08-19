@@ -1,0 +1,24 @@
+{
+  "schema": "pnu.surgical_tool.camera_pose_config.v1",
+  "status": "TEMPLATE_NOT_EXECUTABLE_UNTIL_NULLS_ARE_REPLACED",
+  "view_name": "cam4_or_tray",
+  "width": null,
+  "height": null,
+  "camera_frame_name": null,
+  "calibration_version": null,
+  "k": null,
+  "distortion": null,
+  "support_plane": {
+    "normal_camera_frame": null,
+    "offset_m": null,
+    "config_version": null,
+    "normal_direction_rule": "toward free space"
+  },
+  "depth_contract": {
+    "alignment": "already registered to RGB pixels upstream",
+    "unit": "meter",
+    "dtype": "float32",
+    "invalid_value": "NaN"
+  }
+}
+

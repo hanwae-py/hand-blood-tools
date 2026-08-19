@@ -1,0 +1,64 @@
+{
+  "schema": "pnu.cam4.rfdetrseg.training_summary.v1",
+  "status": "complete",
+  "interpretation": "0704_5 temporal holdout teacher-consistency; not independent dense manual ground truth",
+  "dataset": {
+    "path": "experiments/arpa_h_rfdetr/generated/cam4_0704_5_teacher_coco_seg_v2",
+    "train_frames": 593,
+    "train_instances": 4800,
+    "valid_frames": 100,
+    "valid_instances": 981,
+    "guard_frames": 20,
+    "valid_sample_indices": [356, 455],
+    "guard_sample_indices": [[346, 355], [456, 465]]
+  },
+  "training": {
+    "environment": "conda:rfdetr_cam4",
+    "gpu": "NVIDIA RTX A6000, CUDA_VISIBLE_DEVICES=1",
+    "epochs_completed": 30,
+    "best_epoch_one_based": 26,
+    "batch_size": 16,
+    "grad_accum_steps": 1,
+    "resolution": 384,
+    "amp_dtype": "bf16",
+    "duration_sec": 2300.502292210993,
+    "gpu_peak_allocated_mib": 12899.2568359375,
+    "gpu_peak_reserved_mib": 22690.0,
+    "main_process_peak_rss_mib": 4220.9453125
+  },
+  "selected_checkpoint_metrics": {
+    "bbox_map_50_95": 0.713966429233551,
+    "bbox_map_50": 0.8878782987594604,
+    "bbox_map_75": 0.7727864980697632,
+    "bbox_mar": 0.8446323275566101,
+    "bbox_f1_sweep": 0.9183800220489502,
+    "bbox_precision": 0.8881608247756958,
+    "bbox_recall": 0.9547151923179626,
+    "mask_map_50_95": 0.6524021029472351,
+    "mask_map_50": 0.9269212484359741,
+    "bbox_ap_50_95_per_class": {
+      "Scalpel": 0.9974059462547302,
+      "Allis Forceps": 0.9676728844642639,
+      "Mosquito": 0.6651315689086914,
+      "Adson Forceps": 0.4260684847831726,
+      "Bipolar Forceps": 0.6052842140197754,
+      "Bovie": 0.5412715673446655,
+      "Army-Navy Retractor": 0.7070719599723816,
+      "Thyroid Retractor": 0.8018249273300171
+    }
+  },
+  "checkpoint": {
+    "path": "experiments/arpa_h_rfdetr/training/runs/20260810_0704_5_teacher_v2_fitting_e30_b16/checkpoint_best_total.pth",
+    "selected_source": "regular",
+    "sha256": "fff1e97a0259f11597ef6c5cf70506d1ec40eafbb5f391a498b6bee452c1fe6f",
+    "class_head_shape": [9, 256]
+  },
+  "single_frame_sanity": {
+    "result": "experiments/arpa_h_rfdetr/results/20260810_cam4_seg8_final_single_frame_sanity.json",
+    "threshold": 0.5,
+    "ground_truth_instances": 9,
+    "predicted_instances": 9,
+    "class_count_match": true,
+    "latency_is_benchmark_eligible": false
+  }
+}
