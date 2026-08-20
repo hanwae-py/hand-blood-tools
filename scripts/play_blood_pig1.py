@@ -9,7 +9,12 @@ from pathlib import Path
 import cv2
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
 from sensor_msgs.msg import CompressedImage
 
 
@@ -23,9 +28,13 @@ class ImageFolderPublisher(Node):
         if not self._paths:
             raise RuntimeError(f"no PNG/JPEG files in {images_dir}")
         self._index = 0
-        self._publisher = self.create_publisher(
-            CompressedImage, topic, qos_profile_sensor_data
+        camera_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=20,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
         )
+        self._publisher = self.create_publisher(CompressedImage, topic, camera_qos)
         self.create_timer(1.0 / fps, self._publish_next)
         self.get_logger().info(
             f"replaying {len(self._paths)} images from {images_dir} at {fps:g} FPS on {topic}"
