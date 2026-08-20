@@ -23,7 +23,7 @@ Download the Blood RF-DETR Seg-Small checkpoint from
 then set `BLOOD_CHECKPOINT` in `config/system.env` to its local `.pth` path.
 
 Download the Tool v1.4 RF-DETR Seg-Small checkpoint
-[`cam4_rfdetr_seg_small_v1.pth` from Google Drive](https://drive.google.com/file/d/1oXid9UuSCEgOwCzDWOU8CJeDE8t0fL4y/view?usp=drive_link),
+[`cam4_rfdetr_seg_small_v1.pth` from Google Drive](https://drive.google.com/file/d/1Rscaaa2l4r9FUD4-s_LXWwETCOWJkNnt/view?usp=drive_link),
 then set `TOOL_V14_CHECKPOINT` in `config/system.env` to its local `.pth` path.
 
 ## First setup on another PC
