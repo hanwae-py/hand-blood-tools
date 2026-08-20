@@ -2,15 +2,18 @@
 """ROS 2 lifecycle adapter for the supplied RF-DETR Seg-Small Blood model.
 
 RGB recognition publishes 2D masks always. When a fresh compressedDepth frame
-matches the RGB stamp and resolution, each mask centroid is sampled for
-metric depth. Missing depth skips those fields. Set require_depth to skip
-frames that have no usable depth.
+matches the RGB stamp, each mask centroid is sampled for metric depth in the
+RGB frame: same HxW is used directly, otherwise native depth is registered
+with color/depth CameraInfo and the CAM4 depth-to-color extrinsics. Missing
+or unmappable depth skips those fields. Set require_depth to skip frames that
+have no usable depth.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -18,7 +21,7 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
 
 
@@ -83,12 +86,23 @@ class BloodDetectionNode(LifecycleNode):
         self.declare_parameter(
             "depth_topic", "/synced/cam_4/depth/image_rect_raw/compressedDepth"
         )
-        self.declare_parameter("checkpoint", "/home/hanwae/blood/blood_detection.pth")
+        self.declare_parameter(
+            "color_camera_info_topic", "/synced/cam_4/color/camera_info"
+        )
+        self.declare_parameter(
+            "depth_camera_info_topic", "/synced/cam_4/depth/camera_info"
+        )
+        self.declare_parameter(
+            "checkpoint", str(Path.home() / "models" / "blood_detection.pth")
+        )
         self.declare_parameter("confidence_threshold", 0.5)
         self.declare_parameter("optimize", True)
         self.declare_parameter("require_depth", False)
         self.declare_parameter("maximum_stamp_delta_ns", 1_000_000)
         self.declare_parameter("depth_scale_m_per_unit", 0.001)
+        self.declare_parameter("depth_to_color_rotation", [float("nan")] * 9)
+        self.declare_parameter("depth_to_color_translation_m", [float("nan")] * 3)
+        self.declare_parameter("calibration_version", "")
         self.declare_parameter("mask_topic", "/surgery/perception/cam4/blood_mask")
         self.declare_parameter("overlay_topic", "/surgery/images/cam4/blood_overlay/compressed")
         self.declare_parameter("semantics_topic", "/surgery/perception/cam4/blood/semantics/json")
@@ -104,6 +118,10 @@ class BloodDetectionNode(LifecycleNode):
         self._last_instances = 0
         self._last_error = ""
         self._latest_depth: CompressedImage | None = None
+        self._color_info: CameraInfo | None = None
+        self._depth_info: CameraInfo | None = None
+        self._registrar = None
+        self._registrar_key: tuple[object, ...] | None = None
         self._mask_pub = None
         self._overlay_pub = None
         self._semantics_pub = None
@@ -119,6 +137,18 @@ class BloodDetectionNode(LifecycleNode):
             CompressedImage,
             str(self.get_parameter("depth_topic").value),
             self._on_depth,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            CameraInfo,
+            str(self.get_parameter("color_camera_info_topic").value),
+            self._on_color_info,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            CameraInfo,
+            str(self.get_parameter("depth_camera_info_topic").value),
+            self._on_depth_info,
             qos_profile_sensor_data,
         )
         self.create_timer(1.0, self._publish_status)
@@ -196,6 +226,84 @@ class BloodDetectionNode(LifecycleNode):
     def _on_depth(self, message: CompressedImage) -> None:
         self._latest_depth = message
 
+    def _on_color_info(self, message: CameraInfo) -> None:
+        self._color_info = message
+        self._registrar = None
+        self._registrar_key = None
+
+    def _on_depth_info(self, message: CameraInfo) -> None:
+        self._depth_info = message
+        self._registrar = None
+        self._registrar_key = None
+
+    def _depth_to_color_registrar(
+        self, rgb_height: int, rgb_width: int, native_shape: tuple[int, ...]
+    ):
+        if len(native_shape) != 2:
+            return None
+        try:
+            from pnu_surgical_tool.depth_registration import (
+                finite_vector_or_none,
+                registrar_from_camera_messages,
+            )
+        except ImportError as exc:
+            self.get_logger().warn(
+                f"Blood depth-to-color registration unavailable: {exc}",
+                throttle_duration_sec=10.0,
+            )
+            return None
+        color_info = self._color_info
+        depth_info = self._depth_info
+        rotation = finite_vector_or_none(
+            self.get_parameter("depth_to_color_rotation").value, 9
+        )
+        translation = finite_vector_or_none(
+            self.get_parameter("depth_to_color_translation_m").value, 3
+        )
+        version = str(self.get_parameter("calibration_version").value).strip()
+        if (
+            color_info is None
+            or depth_info is None
+            or rotation is None
+            or translation is None
+            or not version
+        ):
+            return None
+        if int(color_info.width) != rgb_width or int(color_info.height) != rgb_height:
+            return None
+        if (int(depth_info.height), int(depth_info.width)) != native_shape:
+            return None
+        key = (
+            int(color_info.width),
+            int(color_info.height),
+            tuple(np.asarray(color_info.k, dtype=np.float64).ravel()),
+            tuple(np.asarray(color_info.d, dtype=np.float64).ravel()),
+            str(color_info.header.frame_id),
+            int(depth_info.width),
+            int(depth_info.height),
+            tuple(np.asarray(depth_info.k, dtype=np.float64).ravel()),
+            tuple(np.asarray(depth_info.d, dtype=np.float64).ravel()),
+            str(depth_info.header.frame_id),
+            tuple(rotation.ravel()),
+            tuple(translation.ravel()),
+            version,
+        )
+        if self._registrar is not None and self._registrar_key == key:
+            return self._registrar
+        try:
+            registrar = registrar_from_camera_messages(
+                color_info, depth_info, rotation, translation, version
+            )
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(
+                f"Blood depth-to-color registrar skipped: {exc}",
+                throttle_duration_sec=5.0,
+            )
+            return None
+        self._registrar = registrar
+        self._registrar_key = key
+        return registrar
+
     def _aligned_depth_m(
         self, rgb: CompressedImage, height: int, width: int
     ) -> np.ndarray | None:
@@ -208,6 +316,7 @@ class BloodDetectionNode(LifecycleNode):
         try:
             from pnu_surgical_tool.depth_registration import (
                 decode_compressed_depth_16uc1,
+                metric_depth_in_rgb_frame,
             )
 
             native = decode_compressed_depth_16uc1(depth_msg.data, depth_msg.format)
@@ -217,12 +326,23 @@ class BloodDetectionNode(LifecycleNode):
                 throttle_duration_sec=5.0,
             )
             return None
+        registrar = None
         if native.shape != (height, width):
-            return None
-        scale = float(self.get_parameter("depth_scale_m_per_unit").value)
-        depth_m = native.astype(np.float32) * scale
-        depth_m[native == 0] = 0.0
-        return depth_m
+            registrar = self._depth_to_color_registrar(height, width, native.shape)
+        aligned = metric_depth_in_rgb_frame(
+            native,
+            height,
+            width,
+            float(self.get_parameter("depth_scale_m_per_unit").value),
+            registrar,
+        )
+        if aligned is None and native.shape != (height, width):
+            self.get_logger().warn(
+                "Blood native depth HxW differs from RGB and could not be "
+                "registered; centroid depth skipped",
+                throttle_duration_sec=5.0,
+            )
+        return aligned
 
     def _on_color(self, message: CompressedImage) -> None:
         if not self._active or self._model is None:

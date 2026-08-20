@@ -52,7 +52,9 @@ the synchronized camera provider's ``compressedDepth``
 republisher is required.  Decoding a 16UC1 PNG does not prove color alignment,
 so metric 3D output remains invalid until ``depth_alignment_validated`` is
 explicitly enabled after the RGB/depth frame and calibration contract is
-approved.
+approved. Native depth that is not already RGB-sized is registered into the
+color camera with the same depth-to-color extrinsics as Tool; it is never
+sampled by clipping RGB UVs into the native depth image.
 """
 import cv2
 import json
@@ -165,6 +167,12 @@ class HandDetectionNode(LifecycleNode):
         self.declare_parameter('depth_alignment_validated', False)
         self.declare_parameter(
             'camera_info_topic', '/synced/cam_4/color/camera_info')
+        self.declare_parameter(
+            'depth_camera_info_topic', '/synced/cam_4/depth/camera_info')
+        self.declare_parameter('depth_scale_m_per_unit', 0.001)
+        self.declare_parameter('depth_to_color_rotation', [float('nan')] * 9)
+        self.declare_parameter('depth_to_color_translation_m', [float('nan')] * 3)
+        self.declare_parameter('calibration_version', '')
 
         # Output topic names follow the ARPA-H interface contract
         # (/surgery/perception/..., /surgery/images/.../compressed) rather
@@ -204,7 +212,12 @@ class HandDetectionNode(LifecycleNode):
         self.torch = self.depth_processor = self.depth_model = self.device = self.dtype = None
         self.sync = None
         self._subs = []
+        self._raw_subs = []
         self._active = False
+        self._depth_info = None
+        self._registrar = None
+        self._registrar_key = None
+        self._registration_helpers = 'unloaded'
 
         self.use_real_depth = False
         self.depth_source_label = 'unconfigured'
@@ -313,6 +326,8 @@ class HandDetectionNode(LifecycleNode):
         self.depth_alignment_validated = bool(
             g('depth_alignment_validated').value)
         self.camera_info_topic = g('camera_info_topic').value
+        self.depth_camera_info_topic = str(g('depth_camera_info_topic').value)
+        self.depth_scale_m_per_unit = float(g('depth_scale_m_per_unit').value)
         depth_source_param = g('depth_source').value
         self.depth_model_name = g('depth_model').value
         self.max_hands = g('max_hands').value
@@ -398,6 +413,7 @@ class HandDetectionNode(LifecycleNode):
         info_sub = message_filters.Subscriber(
             self, CameraInfo, self.camera_info_topic, qos_profile=info_qos)
         self._subs = [color_sub, info_sub]
+        self._raw_subs = []
         if self.use_real_depth:
             depth_type = (
                 CompressedImage
@@ -410,6 +426,12 @@ class HandDetectionNode(LifecycleNode):
             self.sync = message_filters.ApproximateTimeSynchronizer(
                 [color_sub, depth_sub, info_sub], queue_size=10, slop=sync_slop)
             self.sync.registerCallback(self._on_synced_real)
+            depth_info_sub = self.create_subscription(
+                CameraInfo,
+                self.depth_camera_info_topic,
+                self._on_depth_info,
+                info_qos)
+            self._raw_subs.append(depth_info_sub)
         else:
             self.sync = message_filters.ApproximateTimeSynchronizer(
                 [color_sub, info_sub], queue_size=10, slop=sync_slop)
@@ -423,6 +445,10 @@ class HandDetectionNode(LifecycleNode):
                 if self.use_real_depth else '(monocular depth) '
             )
             + f'camera_info={self.camera_info_topic}'
+            + (
+                f' depth_camera_info={self.depth_camera_info_topic}'
+                if self.use_real_depth else ''
+            )
             + (f' | robot_position={self.robot_position}' if self.robot_position else ''))
         self._last_error_code = ''
         self._last_error_message = ''
@@ -478,7 +504,17 @@ class HandDetectionNode(LifecycleNode):
                     self.destroy_subscription(inner)
                 except Exception:                          # noqa: BLE001
                     self.get_logger().debug('subscription teardown raised; ignoring')
+        for sub in self._raw_subs:
+            try:
+                self.destroy_subscription(sub)
+            except Exception:                              # noqa: BLE001
+                self.get_logger().debug('subscription teardown raised; ignoring')
         self._subs = []
+        self._raw_subs = []
+        self._depth_info = None
+        self._registrar = None
+        self._registrar_key = None
+        self._registration_helpers = 'unloaded'
 
     def _release_models(self):
         """Drop every reference that could be pinning GPU memory."""
@@ -641,6 +677,115 @@ class HandDetectionNode(LifecycleNode):
     def _on_synced_real(self, color_msg, depth_msg, info_msg):
         self._process(color_msg, info_msg, depth_msg=depth_msg)
 
+    def _on_depth_info(self, message):
+        self._depth_info = message
+        self._registrar = None
+        self._registrar_key = None
+
+    def _registration_api(self):
+        if self._registration_helpers == 'unloaded':
+            try:
+                from pnu_surgical_tool.depth_registration import (
+                    finite_vector_or_none,
+                    metric_depth_in_rgb_frame,
+                    registrar_from_camera_messages,
+                )
+                self._registration_helpers = (
+                    finite_vector_or_none,
+                    metric_depth_in_rgb_frame,
+                    registrar_from_camera_messages,
+                )
+            except ImportError as exc:
+                self.get_logger().warn(
+                    'Hand depth-to-color registration unavailable '
+                    f'(set PYTHONPATH to tool algorithm/src): {exc}')
+                self._registration_helpers = None
+        return self._registration_helpers
+
+    def _depth_to_color_registrar(self, color_info, native_shape, rgb_height, rgb_width):
+        helpers = self._registration_api()
+        if helpers is None or len(native_shape) != 2:
+            return None
+        finite_vector_or_none, _, registrar_from_camera_messages = helpers
+        depth_info = self._depth_info
+        rotation = finite_vector_or_none(
+            self.get_parameter('depth_to_color_rotation').value, 9)
+        translation = finite_vector_or_none(
+            self.get_parameter('depth_to_color_translation_m').value, 3)
+        version = str(self.get_parameter('calibration_version').value).strip()
+        if (
+            color_info is None
+            or depth_info is None
+            or rotation is None
+            or translation is None
+            or not version
+        ):
+            return None
+        if int(color_info.width) != rgb_width or int(color_info.height) != rgb_height:
+            return None
+        if (int(depth_info.height), int(depth_info.width)) != tuple(native_shape):
+            return None
+        key = (
+            int(color_info.width),
+            int(color_info.height),
+            tuple(np.asarray(color_info.k, dtype=np.float64).ravel()),
+            tuple(np.asarray(color_info.d, dtype=np.float64).ravel()),
+            str(color_info.header.frame_id),
+            int(depth_info.width),
+            int(depth_info.height),
+            tuple(np.asarray(depth_info.k, dtype=np.float64).ravel()),
+            tuple(np.asarray(depth_info.d, dtype=np.float64).ravel()),
+            str(depth_info.header.frame_id),
+            tuple(rotation.ravel()),
+            tuple(translation.ravel()),
+            version,
+        )
+        if self._registrar is not None and self._registrar_key == key:
+            return self._registrar
+        try:
+            registrar = registrar_from_camera_messages(
+                color_info, depth_info, rotation, translation, version)
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(
+                f'Hand depth-to-color registrar skipped: {exc}',
+                throttle_duration_sec=5.0)
+            return None
+        self._registrar = registrar
+        self._registrar_key = key
+        return registrar
+
+    def _rgb_sized_depth_map(self, native, height, width, color_info):
+        """Map native depth into the RGB frame. Never clip RGB UVs into native HxW."""
+        rgb_nan = np.full((height, width), np.nan, dtype=np.float32)
+        if not self.depth_alignment_validated:
+            return rgb_nan
+        helpers = self._registration_api()
+        metric_depth_in_rgb_frame = None if helpers is None else helpers[1]
+        registrar = None
+        if tuple(native.shape) != (height, width):
+            registrar = self._depth_to_color_registrar(
+                color_info, native.shape, height, width)
+        if metric_depth_in_rgb_frame is None:
+            if tuple(native.shape) == (height, width):
+                scale = float(self.depth_scale_m_per_unit)
+                depth_m = native.astype(np.float32) * scale
+                depth_m[native == 0] = 0.0
+                return depth_m
+            self.get_logger().warn(
+                'Hand native depth HxW differs from RGB and registration is '
+                'unavailable; 3D keypoints stay invalid',
+                throttle_duration_sec=5.0)
+            return rgb_nan
+        aligned = metric_depth_in_rgb_frame(
+            native, height, width, float(self.depth_scale_m_per_unit), registrar)
+        if aligned is None:
+            self.get_logger().warn(
+                'Hand native depth HxW differs from RGB and could not be '
+                'registered; 3D keypoints stay invalid',
+                throttle_duration_sec=5.0)
+            return rgb_nan
+        return aligned
+
     def _process(self, color_msg, info_msg, depth_msg):
         # The subscriptions stay alive while INACTIVE so that reactivating is
         # instant; this is where a non-active node throws the frame away
@@ -720,11 +865,14 @@ class HandDetectionNode(LifecycleNode):
                 depth_raw = self.bridge.imgmsg_to_cv2(
                     depth_msg, desired_encoding='passthrough')
             if self.depth_alignment_validated:
-                depth_map = depth_raw.astype(np.float32) / 1000.0
+                depth_map = self._rgb_sized_depth_map(
+                    depth_raw, H, W, info_msg)
             else:
                 # Keep 2D hand detections alive but invalidate every depth-
                 # derived 3D point until alignment is explicitly approved.
-                depth_map = np.full(depth_raw.shape, np.nan, dtype=np.float32)
+                # Use the RGB size so keypoint UVs are never clipped into a
+                # smaller native depth image.
+                depth_map = np.full((H, W), np.nan, dtype=np.float32)
         else:
             depth_map = run_mono_depth(frame_bgr, self.torch, self.depth_processor,
                                         self.depth_model, self.device, self.dtype, H, W)

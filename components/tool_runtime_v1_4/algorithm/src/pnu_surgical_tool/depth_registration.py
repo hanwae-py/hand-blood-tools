@@ -337,3 +337,124 @@ def rigid_transform_from_realsense_extrinsics(
         target_frame=target_frame,
         calibration_version=calibration_version,
     )
+
+
+def registrar_from_camera_fields(
+    *,
+    color_width: int,
+    color_height: int,
+    color_k: Any,
+    color_d: Any,
+    color_frame: str,
+    depth_width: int,
+    depth_height: int,
+    depth_k: Any,
+    depth_d: Any,
+    depth_frame: str,
+    rotation: Any,
+    translation_m: Any,
+    calibration_version: str,
+) -> DepthToColorRegistrar:
+    """Build a depth-to-color registrar from CameraInfo-equivalent fields."""
+
+    color_camera = CameraCalibration(
+        width=int(color_width),
+        height=int(color_height),
+        k=np.asarray(color_k, dtype=np.float64).reshape(3, 3),
+        distortion=np.asarray(color_d, dtype=np.float64),
+        frame_name=str(color_frame),
+        calibration_version=f"{calibration_version}:color",
+    )
+    depth_camera = CameraCalibration(
+        width=int(depth_width),
+        height=int(depth_height),
+        k=np.asarray(depth_k, dtype=np.float64).reshape(3, 3),
+        distortion=np.asarray(depth_d, dtype=np.float64),
+        frame_name=str(depth_frame),
+        calibration_version=f"{calibration_version}:depth",
+    )
+    transform = rigid_transform_from_realsense_extrinsics(
+        rotation,
+        translation_m,
+        source_frame=depth_camera.frame_name,
+        target_frame=color_camera.frame_name,
+        calibration_version=f"{calibration_version}:depth_to_color",
+    )
+    return DepthToColorRegistrar(depth_camera, color_camera, transform)
+
+
+def finite_vector_or_none(values: Any, length: int) -> np.ndarray | None:
+    """Return a finite 1-D vector, or None when the shape/values are unusable."""
+
+    try:
+        vector = np.asarray(values, dtype=np.float64).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    if vector.shape != (length,) or not np.all(np.isfinite(vector)):
+        return None
+    return vector
+
+
+def registrar_from_camera_messages(
+    color_info: Any,
+    depth_info: Any,
+    rotation: Any,
+    translation_m: Any,
+    calibration_version: str,
+) -> DepthToColorRegistrar:
+    """Build a registrar from ROS ``CameraInfo``-like messages."""
+
+    color_frame = str(color_info.header.frame_id) or "color_optical_frame"
+    depth_frame = str(depth_info.header.frame_id) or "depth_optical_frame"
+    return registrar_from_camera_fields(
+        color_width=int(color_info.width),
+        color_height=int(color_info.height),
+        color_k=color_info.k,
+        color_d=color_info.d,
+        color_frame=color_frame,
+        depth_width=int(depth_info.width),
+        depth_height=int(depth_info.height),
+        depth_k=depth_info.k,
+        depth_d=depth_info.d,
+        depth_frame=depth_frame,
+        rotation=rotation,
+        translation_m=translation_m,
+        calibration_version=calibration_version,
+    )
+
+
+def metric_depth_in_rgb_frame(
+    native_depth: np.ndarray,
+    rgb_height: int,
+    rgb_width: int,
+    depth_scale_m_per_unit: float,
+    registrar: DepthToColorRegistrar | None = None,
+) -> np.ndarray | None:
+    """Return RGB-sized metric z-depth, or None when that mapping is unsafe.
+
+    Same HxW is treated as already in the color grid (aligned depth or matching
+    native size). A resolution mismatch uses ``DepthToColorRegistrar``; missing
+    or incompatible calibration does not clip RGB UVs into the native image.
+    """
+
+    source = np.asarray(native_depth)
+    if source.ndim != 2:
+        return None
+    rgb_shape = (int(rgb_height), int(rgb_width))
+    if source.shape == rgb_shape:
+        scale = float(depth_scale_m_per_unit)
+        if not np.isfinite(scale) or scale <= 0.0:
+            return None
+        depth_m = source.astype(np.float32) * scale
+        depth_m[source == 0] = 0.0
+        return depth_m
+    if registrar is None:
+        return None
+    expected_depth = (registrar.depth_camera.height, registrar.depth_camera.width)
+    expected_color = (registrar.color_camera.height, registrar.color_camera.width)
+    if source.shape != expected_depth or expected_color != rgb_shape:
+        return None
+    try:
+        return registrar.register(source, depth_scale_m_per_unit).aligned_depth_m
+    except (TypeError, ValueError):
+        return None

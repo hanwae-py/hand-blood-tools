@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pnu_surgical_tool.depth_registration import decode_compressed_depth_16uc1
+from pnu_surgical_tool.depth_registration import (
+    decode_compressed_depth_16uc1,
+    metric_depth_in_rgb_frame,
+    registrar_from_camera_fields,
+)
 from pnu_surgical_tool.planar_pose import (
     PlanarPoseEstimator,
     longitudinal_origin_uv,
@@ -110,3 +114,46 @@ def test_decode_compressed_depth_png_payload() -> None:
     assert decoded.shape == (8, 12)
     assert int(decoded[1, 1]) == 1500
     assert int(decoded[0, 0]) == 0
+
+
+def test_metric_depth_same_shape_scales_without_registration() -> None:
+    native = np.full((4, 5), 2000, dtype=np.uint16)
+    native[0, 0] = 0
+    depth = metric_depth_in_rgb_frame(native, 4, 5, 0.001)
+    assert depth is not None
+    assert depth.shape == (4, 5)
+    assert float(depth[1, 1]) == pytest.approx(2.0)
+    assert float(depth[0, 0]) == 0.0
+    assert metric_depth_in_rgb_frame(native, 8, 10, 0.001) is None
+
+
+def test_metric_depth_registers_native_into_rgb_frame() -> None:
+    registrar = registrar_from_camera_fields(
+        color_width=10,
+        color_height=8,
+        color_k=[[100.0, 0.0, 5.0], [0.0, 100.0, 4.0], [0.0, 0.0, 1.0]],
+        color_d=[],
+        color_frame="color",
+        depth_width=5,
+        depth_height=4,
+        depth_k=[[50.0, 0.0, 2.5], [0.0, 50.0, 2.0], [0.0, 0.0, 1.0]],
+        depth_d=[],
+        depth_frame="depth",
+        rotation=np.eye(3),
+        translation_m=[0.0, 0.0, 0.0],
+        calibration_version="test",
+    )
+    native = np.full((4, 5), 1500, dtype=np.uint16)
+    aligned = metric_depth_in_rgb_frame(native, 8, 10, 0.001, registrar)
+    assert aligned is not None
+    assert aligned.shape == (8, 10)
+    finite = aligned[np.isfinite(aligned)]
+    assert finite.size > 0
+    assert float(np.nanmedian(finite)) == pytest.approx(1.5, abs=0.05)
+
+
+def test_package_import_does_not_load_detector() -> None:
+    import sys
+
+    assert "pnu_surgical_tool.rfdetr_inference" not in sys.modules
+    assert "pnu_surgical_tool.api" not in sys.modules

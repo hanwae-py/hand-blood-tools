@@ -34,7 +34,7 @@ head -1 install/hand_keypoint_ros/lib/hand_keypoint_ros/hand_detection_node
 ```
 
 ```text
-#!/home/hanwae/hand_keypoints_ros_ws/.venv/bin/python
+#!/usr/bin/env python3
 ```
 
 ## GPU verification

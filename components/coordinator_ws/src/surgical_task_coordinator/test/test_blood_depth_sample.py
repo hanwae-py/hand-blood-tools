@@ -6,7 +6,8 @@ import cv2
 import numpy as np
 import pytest
 import rclpy
-from sensor_msgs.msg import CompressedImage
+from rclpy.parameter import Parameter
+from sensor_msgs.msg import CameraInfo, CompressedImage
 
 from surgical_task_coordinator.blood_detection_node import (
     BloodDetectionNode,
@@ -77,6 +78,51 @@ def test_blood_node_samples_matching_depth_and_skips_otherwise():
         stale = CompressedImage()
         stale.header.stamp.nanosec = 2_000_000
         assert node._aligned_depth_m(stale, 8, 12) is None
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def _camera_info(
+    width: int, height: int, frame: str, fx: float, fy: float, cx: float, cy: float
+) -> CameraInfo:
+    message = CameraInfo()
+    message.width = width
+    message.height = height
+    message.header.frame_id = frame
+    message.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
+    message.d = []
+    return message
+
+
+def test_blood_registers_native_depth_into_rgb_frame():
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node.set_parameters(
+            [
+                Parameter(
+                    "depth_to_color_rotation",
+                    Parameter.Type.DOUBLE_ARRAY,
+                    [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                ),
+                Parameter(
+                    "depth_to_color_translation_m",
+                    Parameter.Type.DOUBLE_ARRAY,
+                    [0.0, 0.0, 0.0],
+                ),
+                Parameter("calibration_version", Parameter.Type.STRING, "test"),
+            ]
+        )
+        node._on_color_info(_camera_info(12, 8, "color", 100.0, 100.0, 6.0, 4.0))
+        node._on_depth_info(_camera_info(6, 4, "depth", 50.0, 50.0, 3.0, 2.0))
+        node._on_depth(_compressed_depth(4, 6, 1500))
+        aligned = node._aligned_depth_m(CompressedImage(), 8, 12)
+        assert aligned is not None
+        assert aligned.shape == (8, 12)
+        finite = aligned[np.isfinite(aligned) & (aligned > 0)]
+        assert finite.size > 0
+        assert float(np.nanmedian(finite)) == pytest.approx(1.5, abs=0.05)
     finally:
         node.destroy_node()
         rclpy.try_shutdown()

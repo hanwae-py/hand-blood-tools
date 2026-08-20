@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-ROS_SETUP=/opt/ros/jazzy/setup.bash
-HAND_REPO=/home/hanwae/hand_keypoints_ros
-HAND_VENV=/home/hanwae/hand_keypoints_ros_ws/.venv
-RF_REPO=/home/hanwae/surgical_robot/rfdetr_perception_ros
-RF_VENV=${RF_REPO}/.venv
-TOOL_BUNDLE=/home/hanwae/surgical_robot/tool_detection_component_v1_3_rc1
-COORD=/home/hanwae/surgical_robot/coordinator_ws
-DATASET=/home/hanwae/surgical_robot/test_data/cam4_0618
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+source "${ROOT}/config/system.env"
+ROS_SETUP="/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
+COORD="${ROOT}/components/coordinator_ws"
+HAND_REPO="${ROOT}/components/hand_keypoints_ros"
+HAND_VENV="$(cd "$(dirname "${HAND_PYTHON}")/.." && pwd)"
+RF_VENV="$(cd "$(dirname "${RFDETR_PYTHON}")/.." && pwd)"
+TOOL_BUNDLE="${TOOL_V13_BUNDLE:-${HOME}/models/tool_detection_component_v1_3_rc1}"
+DATASET="${OFFLINE_DATASET:-${HOME}/data/cam4_0618}"
 VIDEO=${DATASET}/rgb/0618_2_cam4_rgb_11m11s_to_11m41s.avi
 DEPTH_H5=${DATASET}/depth_raw/0618_2_cam4_depth_raw_11m11s_to_11m41s.h5
 CALIB=${DATASET}/calibration/0618_2_calibration_data.json
@@ -106,7 +107,7 @@ bash -lc "source '${ROS_SETUP}'; source '${HAND_VENV}/bin/activate'; \
     -p publish_overlay:=false" &
 PIDS+=("$!")
 
-python3 /home/hanwae/surgical_robot/coordinator_ws/scripts/perception_result_receiver.py \
+python3 "${COORD}/scripts/perception_result_receiver.py" \
   --ros-args -p timeout_sec:=300.0 > >(tee "${RECEIVER_LOG}") 2>&1 &
 PIDS+=("$!")
 

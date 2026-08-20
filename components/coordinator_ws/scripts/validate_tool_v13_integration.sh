@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-TOOL_VENV=/home/hanwae/surgical_robot/rfdetr_perception_ros/.venv
-COORD=/home/hanwae/surgical_robot/coordinator_ws
-BUNDLE=/home/hanwae/surgical_robot/tool_detection_component_v1_3_rc1
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+source "${ROOT}/config/system.env"
+TOOL_VENV="$(cd "$(dirname "${RFDETR_PYTHON}")/.." && pwd)"
+COORD="${ROOT}/components/coordinator_ws"
+BUNDLE="${TOOL_V13_BUNDLE:-${HOME}/models/tool_detection_component_v1_3_rc1}"
 
 source "${TOOL_VENV}/bin/activate"
-source /opt/ros/jazzy/setup.bash
+source "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
 source "${COORD}/install/setup.bash"
 set -u
 

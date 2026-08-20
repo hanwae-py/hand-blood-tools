@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-DDS_ENV=/home/hanwae/.config/ros/taskplanner_dds_env.sh
+DDS_ENV="${DDS_ENV:-${HOME}/.config/ros/taskplanner_dds_env.sh}"
 [[ -r "${DDS_ENV}" ]] || { printf 'Missing DDS environment: %s\n' "${DDS_ENV}" >&2; exit 1; }
 source "${DDS_ENV}"
 
-ROS_SETUP=/opt/ros/jazzy/setup.bash
-HAND_REPO=/home/hanwae/hand_keypoints_ros
-HAND_VENV=/home/hanwae/hand_keypoints_ros_ws/.venv
-RF_REPO=/home/hanwae/surgical_robot/rfdetr_perception_ros
-RF_VENV=${RF_REPO}/.venv
-TOOL_BUNDLE=/home/hanwae/surgical_robot/tool_detection_component_v1_3_rc1
-COORD=/home/hanwae/surgical_robot/coordinator_ws
-DATASET=/home/hanwae/surgical_robot/test_data/cam4_0618
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+source "${ROOT}/config/system.env"
+ROS_SETUP="/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
+HAND_REPO="${ROOT}/components/hand_keypoints_ros"
+HAND_VENV="$(cd "$(dirname "${HAND_PYTHON}")/.." && pwd)"
+RF_REPO="$(cd "$(dirname "${RFDETR_PYTHON}")/.." && pwd)"
+RF_VENV=${RF_REPO}
+TOOL_BUNDLE="${TOOL_V13_BUNDLE:-${HOME}/models/tool_detection_component_v1_3_rc1}"
+COORD="${ROOT}/components/coordinator_ws"
+DATASET="${OFFLINE_DATASET:-${HOME}/data/cam4_0618}"
 VIDEO=${DATASET}/rgb/0618_2_cam4_rgb_11m11s_to_11m41s.avi
 DEPTH_H5=${DATASET}/depth_raw/0618_2_cam4_depth_raw_11m11s_to_11m41s.h5
 CALIB=${DATASET}/calibration/0618_2_calibration_data.json

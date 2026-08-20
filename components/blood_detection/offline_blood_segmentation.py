@@ -16,8 +16,8 @@ import cv2
 import numpy as np
 
 
-DEFAULT_CHECKPOINT = Path("/home/hanwae/blood/blood_detection.pth")
-DEFAULT_IMAGES = Path("/home/hanwae/blood/pig1/imgs")
+DEFAULT_CHECKPOINT = Path.home() / "models" / "blood_detection.pth"
+DEFAULT_IMAGES = Path.home() / "data" / "blood" / "imgs"
 
 
 def encode_coco_rle(mask: np.ndarray) -> dict[str, object]:

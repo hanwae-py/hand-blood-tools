@@ -21,16 +21,18 @@
 # proving and monitoring the real depth transport end to end.
 set -eo pipefail
 
-DDS_ENV=/home/hanwae/.config/ros/taskplanner_dds_env.sh
+DDS_ENV="${DDS_ENV:-${HOME}/.config/ros/taskplanner_dds_env.sh}"
 [[ -r "${DDS_ENV}" ]] || { printf 'Missing DDS environment: %s\n' "${DDS_ENV}" >&2; exit 1; }
 source "${DDS_ENV}"
 
-ROS_SETUP=/opt/ros/jazzy/setup.bash
-HAND_REPO=/home/hanwae/hand_keypoints_ros
-HAND_VENV=/home/hanwae/hand_keypoints_ros_ws/.venv
-RF_VENV=/home/hanwae/surgical_robot/rfdetr_perception_ros/.venv
-TOOL_BUNDLE=/home/hanwae/surgical_robot/tool_detection_component_v1_3_rc1
-COORD=/home/hanwae/surgical_robot/coordinator_ws
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+source "${ROOT}/config/system.env"
+ROS_SETUP="/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
+HAND_REPO="${ROOT}/components/hand_keypoints_ros"
+HAND_VENV="$(cd "$(dirname "${HAND_PYTHON}")/.." && pwd)"
+RF_VENV="$(cd "$(dirname "${RFDETR_PYTHON}")/.." && pwd)"
+TOOL_BUNDLE="${TOOL_V13_BUNDLE:-${HOME}/models/tool_detection_component_v1_3_rc1}"
+COORD="${ROOT}/components/coordinator_ws"
 
 RGB_TOPIC=/synced/cam_4/color/image_raw/compressed
 INFO_TOPIC=/synced/cam_4/color/camera_info

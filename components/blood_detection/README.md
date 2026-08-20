@@ -6,16 +6,21 @@ checkpoint with RF-DETR Seg-Small.
 - Explicit model class: `blood`
 - Background / `not blood`: implicit background, not a second output class
 - Default confidence threshold: `0.5`
-- Input: PNG/JPEG frames in `/home/hanwae/blood/pig1/imgs`
+- Input: PNG/JPEG frames in `$HOME/data/blood/imgs`
 - Output: per-frame binary mask, overlay image, `overlay.mp4`, `mask.mp4`, and `blood_results.jsonl` with
   boxes, confidence, centroid, and COCO RLE masks.
+
+ROS Blood uses `scripts/run_blood_cam4.sh` and `BLOOD_CHECKPOINT` from
+`config/system.env`. For this offline script, point `--checkpoint` at the same
+`.pth`.
 
 First smoke test (five frames, avoids inference compilation):
 
 ```bash
-source /home/hanwae/surgical_robot/rfdetr_perception_ros/.venv/bin/activate
-python ~/surgical_robot/blood_detection/offline_blood_segmentation.py \
-  --output-dir ~/surgical_robot/results/blood_smoke_test \
+"${RFDETR_PYTHON}" components/blood_detection/offline_blood_segmentation.py \
+  --checkpoint "$HOME/models/blood_detection.pth" \
+  --images-dir "$HOME/data/blood/imgs" \
+  --output-dir "$HOME/results/blood_smoke_test" \
   --max-frames 5 \
   --no-optimize
 ```
@@ -23,9 +28,10 @@ python ~/surgical_robot/blood_detection/offline_blood_segmentation.py \
 Run all images after that:
 
 ```bash
-source /home/hanwae/surgical_robot/rfdetr_perception_ros/.venv/bin/activate
-python ~/surgical_robot/blood_detection/offline_blood_segmentation.py \
-  --output-dir ~/surgical_robot/results/blood_pig1
+"${RFDETR_PYTHON}" components/blood_detection/offline_blood_segmentation.py \
+  --checkpoint "$HOME/models/blood_detection.pth" \
+  --images-dir "$HOME/data/blood/imgs" \
+  --output-dir "$HOME/results/blood_pig1"
 ```
 
 The first full optimized run can take longer because Torch prepares an

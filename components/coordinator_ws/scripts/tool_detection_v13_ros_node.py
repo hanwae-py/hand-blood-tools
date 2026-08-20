@@ -72,7 +72,7 @@ class ToolDetectionV13Node(LifecycleNode):
 
         self.declare_parameter(
             "bundle_root",
-            "/home/hanwae/surgical_robot/tool_detection_component_v1_3_rc1",
+            str(Path.home() / "models" / "tool_detection_component_v1_3_rc1"),
         )
         self.declare_parameter(
             "image_topic", "/synced/cam_4/color/image_raw/compressed"

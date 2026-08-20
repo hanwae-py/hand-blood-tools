@@ -1,0 +1,20 @@
+# Shared CAM4 depth-to-color extrinsics (same values as native Tool pose yaml).
+# Native Ubuntu 24.04 / ROS 2 Jazzy deploy: Hand and Blood load this file.
+/**:
+  ros__parameters:
+    depth_scale_m_per_unit: 0.001
+    depth_to_color_rotation:
+      - 0.9999935626983643
+      - -0.0015063914470374584
+      - -0.0032486612908542156
+      - 0.0014905486023053527
+      - 0.999987006187439
+      - -0.004873663652688265
+      - 0.003255960764363408
+      - 0.004868790041655302
+      - 0.9999828338623047
+    depth_to_color_translation_m:
+      - -0.059281326830387115
+      - -0.000027586851501837373
+      - 0.00048295879969373345
+    calibration_version: "reference_mcap_20260814_cam4_provisional"

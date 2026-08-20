@@ -38,8 +38,9 @@ git clone https://github.com/hanwae-py/hand-blood-tools.git
 cd hand-blood-tools
 ```
 
-1. Install Ubuntu/WSL, ROS 2 Jazzy, NVIDIA CUDA/WSL GPU support, and the
-   Python dependencies described by the Hand and Tool component documentation.
+1. Install Ubuntu 24.04, ROS 2 Jazzy, NVIDIA CUDA, and the Python
+   dependencies described by the Hand and Tool component documentation.
+   The deploy scripts target a native Ubuntu PC, not WSL.
 2. Create two Python 3.12 environments, one for Hand and one for Tool/Blood.
    Do not combine them: Hand pins `torch==2.11.0`, Tool/Blood pins
    `torch==2.7.0+cu118` and `rfdetr==1.8.3`. Use conda or venv.
@@ -114,8 +115,8 @@ Each uint16 unit is millimetres and is converted with `0.001 m/unit`. This is
 | Node | RGB without depth | When matching depth is present |
 |---|---|---|
 | Tool | Always runs RF-DETR and publishes 2D at the longitudinal-axis midpoint | Samples metric depth at that UV; with camera infos also runs planar 4-DOF pose |
-| Blood | Always runs RF-DETR and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`); no RGB-D registration and no suction pose |
-| Hand | 2D MediaPipe keypoints | Back-projects keypoints with RealSense metric depth |
+| Blood | Always runs RF-DETR and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`) in the RGB frame (same HxW, or depth-to-color registration). No suction pose |
+| Hand | 2D MediaPipe keypoints | Back-projects keypoints with RealSense metric depth in the RGB frame (same HxW, or depth-to-color registration) |
 
 Tool and Blood default to `require_depth:=false`: missing depth skips those
 metric fields and still publishes 2D. Set `require_depth:=true` to drop
@@ -126,7 +127,11 @@ RealSense `compressedDepth` topic, not Depth-Anything V2. `depth_source:=mono`
 (or `auto` when no depth publisher is visible) is a relative monocular
 fallback only. `run_hand_cam4.sh` also sets
 `depth_alignment_validated:=false`, so Hand keeps 2D and leaves 3D invalid
-until alignment is explicitly approved.
+until alignment is explicitly approved. In that pending state it uses an
+RGB-sized NaN depth map, so RGB UVs are never clipped into a smaller native
+depth image. After approval, native depth that is not already RGB-sized is
+registered with `config/cam4_depth_to_color.yaml` (the same CAM4 extrinsics
+as Tool).
 
 Tool pose additionally needs a confirmed `depth_scale_m_per_unit`, RGB-depth
 extrinsics, and support-plane parameters. The reference config uses
