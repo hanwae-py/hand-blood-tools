@@ -28,6 +28,10 @@ Download the Blood RF-DETR Seg-Small checkpoint from
 [Google Drive](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view),
 then set `BLOOD_CHECKPOINT` in `config/system.env` to its local `.pth` path.
 
+Download the Tool v1.4 RF-DETR Seg-Small checkpoint
+[`cam4_rfdetr_seg_small_v1.pth` from Google Drive](https://drive.google.com/file/d/1Rscaaa2l4r9FUD4-s_LXWwETCOWJkNnt/view?usp=drive_link),
+then set `TOOL_V14_CHECKPOINT` in `config/system.env` to its local `.pth` path.
+
 ## First setup on another PC
 
 1. Install Ubuntu/WSL, ROS 2 Jazzy, NVIDIA CUDA/WSL GPU support, and the
