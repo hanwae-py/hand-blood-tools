@@ -20,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "model/cam4_rfdetr_seg_small_v1.pth")
+    parser.add_argument("--checkpoint", type=Path, default=ROOT / "model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth")
     parser.add_argument("--ontology", type=Path, default=ROOT / "model/ontology.json")
     parser.add_argument("--color-order", choices=("RGB", "BGR"), required=True)
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=0.3)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-overlay", type=Path)
     parser.add_argument("--no-optimize", action="store_true")

@@ -13,7 +13,7 @@ exec "${RFDETR_PYTHON}" \
   --ros-args \
   --params-file "${TOOL}/ros2_ws/src/pnu_surgical_perception/config/cam4_reference_mcap_native_pose.yaml" \
   -p "algorithm_python_path:=${TOOL}/algorithm/src" \
-  -p "checkpoint:=${TOOL}/algorithm/model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth" \
+  -p "checkpoint:=${TOOL_CHECKPOINT}" \
   -p "ontology:=${TOOL}/algorithm/model/ontology.json" \
   -p "rgb_topic:=${COLOR_TOPIC}" \
   -p "color_camera_info_topic:=${COLOR_CAMERA_INFO_TOPIC}" \

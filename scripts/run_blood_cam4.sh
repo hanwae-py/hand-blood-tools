@@ -9,7 +9,7 @@ set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${COORD}/install/setup.bash"
 set -u
-export PYTHONPATH="${ROOT}/components/tool_runtime_v1_4/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${ROOT}/components/tool_runtime_v1_6/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
 exec "${RFDETR_PYTHON}" -m surgical_task_coordinator.blood_detection_node \
   --ros-args -r __node:=blood_detection_node \
   --params-file "${ROOT}/config/cam4_depth_to_color.yaml" \

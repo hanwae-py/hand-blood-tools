@@ -9,7 +9,7 @@ set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${HAND}/ros2_ws/install/setup.bash"
 set -u
-export PYTHONPATH="${ROOT}/components/tool_runtime_v1_4/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${ROOT}/components/tool_runtime_v1_6/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
 exec "${HAND_PYTHON}" \
   "${HAND}/ros2_ws/install/hand_keypoint_ros/lib/hand_keypoint_ros/hand_detection_node" \
   --ros-args -r __node:=hand_detection_node \

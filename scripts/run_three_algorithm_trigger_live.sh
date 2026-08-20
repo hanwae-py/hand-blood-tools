@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tool v1.4 + Hand + real Blood against an already-running real camera.
+# Tool v1.6 + Hand + real Blood against an already-running real camera.
 set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/config/system.env"
@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"${ROOT}/scripts/run_tool_v14.sh" \
+"${ROOT}/scripts/run_tool_v16.sh" \
   -r __node:=native_depth_tool_pose \
   -p processing_enabled:=false \
   -p processing_gate_topic:="${GATE_TOPIC}" & PIDS+=("$!")

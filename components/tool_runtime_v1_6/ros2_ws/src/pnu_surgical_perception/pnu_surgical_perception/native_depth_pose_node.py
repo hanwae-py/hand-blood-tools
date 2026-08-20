@@ -734,7 +734,7 @@ class NativeDepthPoseNode(Node):
             now_monotonic = time.monotonic()
             if now_monotonic - self._last_publish_log_monotonic >= 1.0:
                 self.get_logger().info(
-                    f'published v1.4 tools: {len(detections.instances)} '
+                    f'published v1.6 tools: {len(detections.instances)} '
                     f'instances; valid_poses={valid_count}; '
                     f'depth_sampled={aligned_depth_m is not None}'
                 )

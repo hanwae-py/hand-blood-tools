@@ -1,11 +1,12 @@
-# Release notes — v1.4.0-rc1 (2026-08-18)
+# Release notes — v1.6.0-rc1-compatible (2026-08-20)
 
-- Reference MCAP의 native `16UC1 compressedDepth` 입력 경로 추가
-- RGB/depth approximate timestamp pairing 추가
-- Depth decode, metric scale, depth-to-color projection 및 z-buffer registration 추가
-- RF-DETR + planar pose를 실행하는 ROS2 node 추가
-- Typed `ToolPoseArray`와 `ToolObservation2DArray` mapping 추가
-- 미검증 depth scale/support plane/calibration에 대한 fail-closed/degraded 상태 추가
-- 로컬 프로젝트 절대경로를 제거하고 bundle-relative 실행 스크립트 제공
+- Detector checkpoint: `cam4_rfdetr_seg_small_regular_resume_e13_best.pth`
+- Default confidence threshold 0.30 (was 0.50)
+- Class-agnostic bounding-box NMS enabled by default (IoU 0.80)
+- Pose-axis debug overlay on `/surgery/images/cam4/pose_overlay/compressed`
+- Depth-to-color helpers for Hand/Blood (`metric_depth_in_rgb_frame` and related)
+- Coordinator-compatible `processing_enabled` / `processing_gate_topic`
 
-모델 checkpoint 자체는 기존 CAM4 RF-DETR 모델과 동일하며 과적합 문제는 미해결 상태다.
+Input topics, native `16UC1 compressedDepth` decode, depth-to-color
+registration, and `PLANAR_4DOF_WITH_NORMAL_PRIOR` pose semantics are unchanged
+from the previous runtime.

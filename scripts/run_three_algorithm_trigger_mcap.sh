@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MCAP + Tool v1.4 + Hand + real Blood. Exactly one detector is active per
+# MCAP + Tool v1.6 + Hand + real Blood. Exactly one detector is active per
 # command. Checkpoints/data remain external paths from config/system.env.
 set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 "${ROOT}/scripts/play_mcap.sh" & PIDS+=("$!")
-"${ROOT}/scripts/run_tool_v14.sh" \
+"${ROOT}/scripts/run_tool_v16.sh" \
   -r __node:=native_depth_tool_pose \
   -p processing_enabled:=false \
   -p processing_gate_topic:="${GATE_TOPIC}" & PIDS+=("$!")

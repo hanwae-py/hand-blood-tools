@@ -7,6 +7,7 @@
 | `/surgery/perception/cam4/tool_poses` | `surgical_perception_msgs/msg/ToolPoseArray` | class와 metric constrained pose |
 | `/surgery/perception/cam4/observations` | `surgical_perception_msgs/msg/ToolObservation2DArray` | bbox, mask RLE, 2D 관측점 |
 | `/surgery/images/cam4/detection_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | 사람이 확인하는 overlay |
+| `/surgery/images/cam4/pose_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | pose 축 디버그 overlay |
 | `/surgery/perception/rfdetr/diagnostics/json` | `std_msgs/msg/String` | 프레임 처리 진단 JSON |
 | `/surgery/perception/rfdetr/health` | `std_msgs/msg/String` | readiness와 오류 상태 JSON |
 

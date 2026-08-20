@@ -7,7 +7,7 @@ take-turn controller.
 
 | Component | Version included | Role |
 |---|---|---|
-| `components/tool_runtime_v1_4` | Tool v1.4 | RGB Tool segmentation; optional depth sample + planar 4-DOF-with-normal-prior pose |
+| `components/tool_runtime_v1_6` | Tool v1.6 | RGB Tool segmentation; class-agnostic NMS; optional depth sample + planar 4-DOF-with-normal-prior pose |
 | `components/hand_keypoints_ros` | current | MediaPipe hand keypoints + depth-derived hand pose |
 | `components/blood_detection` | current | RF-DETR Seg-Small 2D Blood mask/blue overlay; optional centroid depth |
 | `components/coordinator_ws` | current | `DETECT_TOOL`, `DETECT_HAND`, `DETECT_BLOOD`, `STOP` lifecycle selector |
@@ -19,11 +19,11 @@ folders. They must be supplied locally on the destination PC.
 ## Required external checkpoints
 
 Tool current weights:
-[`cam4_rfdetr_seg_small_v1.pth`](https://drive.google.com/file/d/1Rscaaa2l4r9FUD4-s_LXWwETCOWJkNnt/view?usp=drive_link).
-Newer Tool checkpoints will be added to
-[the same Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
+`cam4_rfdetr_seg_small_regular_resume_e13_best.pth`.
+Download Tool checkpoints from
+[this Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
 Copy the `.pth` you want onto the destination PC and set
-`TOOL_V14_CHECKPOINT` in `config/system.env`.
+`TOOL_CHECKPOINT` in `config/system.env`.
 
 Blood:
 [RF-DETR Seg-Small checkpoint](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view).
@@ -49,8 +49,8 @@ cd hand-blood-tools
 
    ```bash
    conda env create -f components/hand_keypoints_ros/environment.yml
-   conda env create -f components/tool_runtime_v1_4/algorithm/environment/environment.yml
-   conda run -n rfdetr pip install -e components/tool_runtime_v1_4/algorithm
+   conda env create -f components/tool_runtime_v1_6/algorithm/environment/environment.yml
+   conda run -n rfdetr pip install -e components/tool_runtime_v1_6/algorithm
    ```
 
    Point `HAND_PYTHON` and `RFDETR_PYTHON` at
@@ -64,8 +64,8 @@ cd hand-blood-tools
    .venv-hand/bin/pip install -r components/hand_keypoints_ros/requirements.txt
 
    python3.12 -m venv .venv-rfdetr
-   .venv-rfdetr/bin/pip install -r components/tool_runtime_v1_4/algorithm/environment/requirements-reference-cu118.txt
-   .venv-rfdetr/bin/pip install -e components/tool_runtime_v1_4/algorithm
+   .venv-rfdetr/bin/pip install -r components/tool_runtime_v1_6/algorithm/environment/requirements-reference-cu118.txt
+   .venv-rfdetr/bin/pip install -e components/tool_runtime_v1_6/algorithm
    ```
 
    Point `HAND_PYTHON` and `RFDETR_PYTHON` at
@@ -100,9 +100,9 @@ the selected profile into `config/system.env`; never edit component source just
 to change an input path or topic.
 
 Offline RGB/H5 caveat: the current fake-camera publisher emits raw images.
-Hand supports that input directly. Tool v1.4 requires compressed RGB and
+Hand supports that input directly. Tool v1.6 requires compressed RGB and
 `compressedDepth`, so use MCAP replay for a complete Tool/Hand/Blood test, or
-add a raw-to-compressed RGB-D bridge before running Tool v1.4 on AVI/H5.
+add a raw-to-compressed RGB-D bridge before running Tool v1.6 on AVI/H5.
 
 ## Depth
 
@@ -118,9 +118,11 @@ Each uint16 unit is millimetres and is converted with `0.001 m/unit`. This is
 | Blood | Always runs RF-DETR and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`) in the RGB frame (same HxW, or depth-to-color registration). No suction pose |
 | Hand | 2D MediaPipe keypoints | Back-projects keypoints with RealSense metric depth in the RGB frame (same HxW, or depth-to-color registration) |
 
-Tool and Blood default to `require_depth:=false`: missing depth skips those
-metric fields and still publishes 2D. Set `require_depth:=true` to drop
-frames that have no usable depth.
+Tool defaults: `confidence_threshold` 0.30, class-agnostic bounding-box NMS
+(IoU 0.80), `require_depth:=false`. Missing depth skips metric fields and still
+publishes 2D. Set `require_depth:=true` to drop frames that have no usable
+depth. Tool also publishes a pose-axis overlay on
+`/surgery/images/cam4/pose_overlay/compressed` when a pose result exists.
 
 Hand's run script sets `depth_source:=real`, so the deploy path is the
 RealSense `compressedDepth` topic, not Depth-Anything V2. `depth_source:=mono`
@@ -140,10 +142,10 @@ confirms the device scale.
 
 ## Main commands
 
-### Tool v1.4 only
+### Tool v1.6 only
 
 ```bash
-bash scripts/run_tool_v14.sh
+bash scripts/run_tool_v16.sh
 ```
 
 ### Hand only
@@ -175,7 +177,9 @@ In another sourced terminal, send `DETECT_TOOL`, `DETECT_HAND`,
 
 ## Important limits
 
-- Tool v1.4 pose is `PLANAR_4DOF_WITH_NORMAL_PRIOR`, not unrestricted full 6D.
+- Tool v1.6 pose is `PLANAR_4DOF_WITH_NORMAL_PRIOR`, not unrestricted full 6D.
+- Class-agnostic NMS can suppress overlapping boxes even when their class IDs
+  differ.
 - Valid Tool pose and Hand 3D both need confirmed metric scale and RGB-depth
   alignment; the current run defaults leave those flags false.
 - Blood currently publishes 2D masks plus an optional centroid depth sample.
