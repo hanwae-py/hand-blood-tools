@@ -1,0 +1,17 @@
+{
+  "schema": "pnu.surgical_tool.inference_config.v1",
+  "architecture": "RFDETRSegSmall",
+  "confidence_threshold": 0.3,
+  "enable_class_agnostic_nms": true,
+  "class_agnostic_nms_iou": 0.8,
+  "checkpoint_input_color_order": "BGR",
+  "optimize": true,
+  "jit_compile": true,
+  "fp16": true,
+  "pose_mode": "PLANAR_4DOF_WITH_NORMAL_PRIOR",
+  "minimum_mask_pixels": 20,
+  "minimum_depth_ratio": 0.05,
+  "minimum_axis_anisotropy": 2.0,
+  "minimum_endpoint_sign_confidence": 0.2,
+  "pose_axis_length_m": 0.05
+}

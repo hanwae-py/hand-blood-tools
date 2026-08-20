@@ -1,0 +1,95 @@
+{
+  "schema": "pnu.cam4.planar_tool_pose_convention.v2",
+  "supersedes": "pnu.cam4.planar_tool_pose_convention.v1",
+  "pose_frame": "cam_4_color_optical_frame",
+  "pose_mode": "planar_on_support",
+  "units": {
+    "position": "meter",
+    "orientation": "xyzw_quaternion"
+  },
+  "axis_convention": {
+    "origin": "RGB-aligned metric 3D point at a foreground pixel selected inside the instance mask near the trimmed longitudinal midpoint",
+    "positive_y": "from the handle or proximal end toward the working tip",
+    "positive_z": "support-plane normal toward free space and approximately toward CAM4",
+    "positive_x": "positive_y cross positive_z",
+    "rotation_matrix_columns": ["positive_x", "positive_y", "positive_z"]
+  },
+  "classes": [
+    {
+      "canonical_id": 1,
+      "train_id": 0,
+      "name": "Scalpel",
+      "negative_y_endpoint": "handle rear",
+      "positive_y_endpoint": "blade tip",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle"
+    },
+    {
+      "canonical_id": 2,
+      "train_id": 1,
+      "name": "Allis Forceps",
+      "negative_y_endpoint": "finger-ring midpoint",
+      "positive_y_endpoint": "jaw-tip midpoint",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle"
+    },
+    {
+      "canonical_id": 3,
+      "train_id": 2,
+      "name": "Mosquito",
+      "negative_y_endpoint": "finger-ring midpoint",
+      "positive_y_endpoint": "jaw-tip midpoint",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle"
+    },
+    {
+      "canonical_id": 4,
+      "train_id": 3,
+      "name": "Adson Forceps",
+      "negative_y_endpoint": "proximal joined-end center",
+      "positive_y_endpoint": "tweezer-tip midpoint",
+      "initial_sign_estimator": "smaller compact longitudinal terminal mass is the proximal joined end"
+    },
+    {
+      "canonical_id": 5,
+      "train_id": 4,
+      "name": "Bipolar Forceps",
+      "negative_y_endpoint": "rigid proximal connector center",
+      "positive_y_endpoint": "electrode-tip midpoint",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle",
+      "excluded_geometry": ["cable", "hand"]
+    },
+    {
+      "canonical_id": 6,
+      "train_id": 5,
+      "name": "Bovie",
+      "negative_y_endpoint": "rigid pencil rear",
+      "positive_y_endpoint": "electrode tip",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle",
+      "excluded_geometry": ["cable", "hand"]
+    },
+    {
+      "canonical_id": 7,
+      "train_id": 6,
+      "name": "Army-Navy Retractor",
+      "negative_y_endpoint": "CAM4-positive representative blade",
+      "positive_y_endpoint": "CAM4-negative representative blade",
+      "initial_sign_estimator": "negative projected CAM4 x; negative projected CAM4 y as tie-break",
+      "physical_symmetry_order": 2,
+      "note": "Both ends are working blades; the sign is a deterministic CAM4 representative convention."
+    },
+    {
+      "canonical_id": 8,
+      "train_id": 7,
+      "name": "Thyroid Retractor",
+      "negative_y_endpoint": "loop-handle center",
+      "positive_y_endpoint": "hooked working tip",
+      "initial_sign_estimator": "larger longitudinal end mass is the handle"
+    }
+  ],
+  "invalidity_policy": [
+    "The instance origin pixel must be inside that instance mask; a bbox center, mask hole, or background pixel is forbidden.",
+    "The instance position is expressed in meters in cam_4_color_optical_frame, never as a normalized 0-to-1 image coordinate.",
+    "Do not publish a valid planar orientation when the instance is not supported by the fitted Mayo surface.",
+    "Do not fabricate metric position when registered depth or the support plane is invalid.",
+    "Mark low endpoint-sign confidence instead of silently treating it as reliable.",
+    "Historical 0704 RGB-depth recovery is provisional until official synchronization and factory extrinsic are supplied."
+  ]
+}

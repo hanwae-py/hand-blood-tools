@@ -1,0 +1,53 @@
+{
+  "schema": "pnu.surgical_tool.delivery_validation.v1",
+  "release": "1.0.0-rc1",
+  "validated_at": "2026-08-18T11:44:09+09:00",
+  "status": "PASS_WITH_KNOWN_LIMITATIONS",
+  "checks": {
+    "python_compileall": "PASS",
+    "standalone_source_has_no_ros_import_or_topic": "PASS",
+    "synthetic_pose_contract": "PASS",
+    "mask_rle_roundtrip": "PASS",
+    "synthetic_native_depth_registration": "PASS",
+    "reference_mcap_cam4_native_depth_registration": {
+      "status": "PASS",
+      "input_format": "16UC1; compressedDepth png",
+      "rgb_depth_stamp_delta_ns": 62012,
+      "aligned_valid_pixels": 676054,
+      "aligned_valid_ratio": 0.7335655381944445,
+      "warm_registration_median_ms": 32.52474303008057,
+      "depth_scale_m_per_unit": 0.001,
+      "depth_scale_status": "caller-supplied; official device setting confirmation pending"
+    },
+    "checkpoint_sha256": "PASS",
+    "isolated_target_wheel_install_without_dependencies": "PASS",
+    "frame99_detection_reference": {
+      "status": "PASS",
+      "threshold": 0.5,
+      "checkpoint_color_order": "BGR",
+      "expected_instances": 11,
+      "actual_instances": 11
+    },
+    "frame99_detection_and_pose_reference": {
+      "status": "PASS",
+      "detected_instances": 11,
+      "valid_poses": 9,
+      "degraded_poses": 2,
+      "degraded_classes": {
+        "Bovie": "endpoint sign confidence 0.087 < 0.20",
+        "Bipolar Forceps": "endpoint sign confidence 0.030 < 0.20"
+      },
+      "position_matching": "same class then nearest P_obs",
+      "maximum_position_difference_m": 0.0085862,
+      "position_tolerance_m": 0.01,
+      "position_difference_note": "API deprojects aligned z-depth with K/D; historical reference retained original z-buffered organized XYZ. This is representation regression, not ground-truth accuracy."
+    }
+  },
+  "fixture_policy": "Clinical/reference image and aligned-point fixture were used locally but are not included in this bundle.",
+  "remaining_acceptance": [
+    "KAIST NUC clean-environment installation and latency measurement",
+    "official depth scale and live synchronized native-depth pose validation",
+    "tray data collection, calibration, accuracy and realtime validation",
+    "data-release and third-party-license approval"
+  ]
+}
