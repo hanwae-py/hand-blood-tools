@@ -43,6 +43,7 @@ def test_mapping_preserves_metric_pose_and_marks_prior_dof():
         axis_anisotropy=4.0,
         status_flags=('POSITION_IS_MASK_INTERNAL_OBSERVED_SURFACE_POINT',),
         invalid_reason='',
+        observation_point_depth_m=0.81,
     )
     result = SimpleNamespace(
         model_version='model-v1',
@@ -82,6 +83,7 @@ def test_mapping_preserves_metric_pose_and_marks_prior_dof():
     assert list(pose.dof_observed) == [True, True, True, False, False, True]
     assert pose.validity == ToolPose.VALIDITY_VALID
     assert observations.instances[0].observation_point_depth_valid
+    assert abs(observations.instances[0].observation_point_depth_m - 0.81) < 1e-5
     assert observations.instances[0].mask_counts
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -167,6 +168,10 @@ def _to_observation(item: Any) -> ToolObservation2D:
     message.observation_point_valid = point_valid
     message.observation_point_inside_mask = inside_mask
     message.observation_point_depth_valid = depth_valid
+    depth_m = getattr(item, 'observation_point_depth_m', None)
+    message.observation_point_depth_m = (
+        float(depth_m) if depth_valid and depth_m is not None else 0.0
+    )
     message.observation_point_selection_mode = str(
         item.observation_point_selection_mode
     )
@@ -229,3 +234,71 @@ def to_pose_and_observation_arrays(
         _to_observation(item) for item in result.instances
     ]
     return pose_array, observation_array
+
+
+def to_observation_array_from_detections(
+    detections: Any,
+    header: Any,
+    sequence: int,
+    view: str,
+    aligned_depth_m: np.ndarray | None = None,
+) -> ToolObservation2DArray:
+    """Publish 2-D mask evidence from RGB detections.
+
+    Depth is sampled at the existing longitudinal-axis midpoint when an
+    aligned depth map is provided. Missing depth skips those fields.
+    """
+    from pnu_surgical_tool.planar_pose import (
+        longitudinal_origin_uv,
+        sample_depth_at_uv,
+    )
+
+    observation_id = f'{view}:{sequence}'
+    observation_array = ToolObservation2DArray()
+    observation_array.header = header
+    observation_array.sequence = int(sequence)
+    observation_array.schema_version = OBSERVATION_SCHEMA
+    observation_array.observation_id = observation_id
+    observation_array.view = view
+    observation_array.image_width = int(detections.image_width)
+    observation_array.image_height = int(detections.image_height)
+    observation_array.model_version = str(detections.model_version)
+    observation_array.ontology_version = str(detections.ontology_version)
+
+    instances = []
+    for item in detections.instances:
+        origin = longitudinal_origin_uv(item.mask, item.class_name)
+        depth_m = None
+        if origin is not None and aligned_depth_m is not None:
+            depth_m = sample_depth_at_uv(aligned_depth_m, origin)
+        inside_mask = False
+        if origin is not None:
+            u, v = (int(round(value)) for value in origin)
+            height, width = item.mask.shape
+            if 0 <= v < height and 0 <= u < width:
+                inside_mask = bool(item.mask[v, u])
+        mapped = SimpleNamespace(
+            frame_local_instance_id=item.frame_local_instance_id,
+            canonical_class_id=item.canonical_class_id,
+            model_class_index=item.model_class_index,
+            class_name=item.class_name,
+            class_confidence=item.class_confidence,
+            bbox_xyxy_px=item.bbox_xyxy_px,
+            mask=item.mask,
+            observation_point_uv_px=(
+                tuple(float(value) for value in origin)
+                if origin is not None
+                else None
+            ),
+            observation_point_selection_mode=(
+                'longitudinal_axis_midpoint' if origin is not None else ''
+            ),
+            observation_point_boundary_clearance_px=0.0,
+            position_valid=depth_m is not None,
+            observation_point_depth_m=depth_m,
+        )
+        message = _to_observation(mapped)
+        message.observation_point_inside_mask = inside_mask
+        instances.append(message)
+    observation_array.instances = instances
+    return observation_array

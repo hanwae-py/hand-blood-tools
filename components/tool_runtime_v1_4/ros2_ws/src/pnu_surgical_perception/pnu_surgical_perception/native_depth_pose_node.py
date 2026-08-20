@@ -1,4 +1,4 @@
-"""Estimate constrained metric tool poses from synchronized ROS RGB-D input."""
+"""Estimate constrained tool poses from ROS RGB, sampling depth when present."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from pnu_surgical_perception.native_depth_sync import (
     RgbDepthPair,
 )
 from pnu_surgical_perception.pose_message_mapping import (
+    to_observation_array_from_detections,
     to_pose_and_observation_arrays,
 )
 
@@ -92,11 +93,13 @@ def camera_info_signature(message: CameraInfo) -> tuple[Any, ...]:
 
 @dataclass(frozen=True)
 class PendingPoseFrame:
-    """One paired RGB-D frame and the calibration snapshot used for it."""
+    """One RGB frame, with optional paired depth for pose and UV sampling."""
 
-    pair: RgbDepthPair
-    color_info: CameraInfo
-    depth_info: CameraInfo
+    rgb: CompressedImage
+    depth: CompressedImage | None
+    color_info: CameraInfo | None
+    depth_info: CameraInfo | None
+    rgb_depth_delta_ns: int | None
     received_monotonic: float
 
 
@@ -196,8 +199,8 @@ class NativeDepthPoseNode(Node):
         self._health_timer = self.create_timer(1.0, self._publish_health)
         self.get_logger().info(
             f'native-depth pose node started: rgb={self._rgb_topic}, '
-            f'depth={self._depth_topic}, max_delta_ns='
-            f'{self._maximum_stamp_delta_ns}'
+            f'depth={self._depth_topic}, require_depth={self._require_depth}, '
+            f'max_delta_ns={self._maximum_stamp_delta_ns}'
         )
 
     def _declare_parameters(self) -> None:
@@ -238,6 +241,7 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('input_freshness_sec', 2.0)
         self.declare_parameter('processing_enabled', True)
         self.declare_parameter('processing_gate_topic', '')
+        self.declare_parameter('require_depth', False)
 
         self.declare_parameter(
             'algorithm_python_path', DEFAULT_ALGORITHM_PATH
@@ -289,6 +293,7 @@ class NativeDepthPoseNode(Node):
         self._input_freshness_sec = float(value('input_freshness_sec'))
         self._processing_enabled = bool(value('processing_enabled'))
         self._processing_gate_topic = str(value('processing_gate_topic')).strip()
+        self._require_depth = bool(value('require_depth'))
         if self._maximum_stamp_delta_ns < 0 or self._sync_queue_size < 1:
             raise ValueError(
                 'timestamp tolerance and sync queue size are invalid'
@@ -383,39 +388,58 @@ class NativeDepthPoseNode(Node):
             )
 
     def _receive_rgb(self, message: CompressedImage) -> None:
-        """Feed an RGB message into the timestamp matcher."""
+        """Run recognition on RGB. Attach depth only when a fresh pair exists."""
         with self._condition:
             self._received_rgb += 1
             pair = self._pairer.add_rgb(message)
-            self._queue_pair(pair)
+            if pair is not None:
+                self._queue_pair(pair)
+                return
+            if self._require_depth:
+                return
+            self._queue_rgb_only(message)
 
     def _receive_depth(self, message: CompressedImage) -> None:
-        """Feed a native-depth message into the timestamp matcher."""
+        """Cache native-depth for pairing. RGB-only recognition does not wait."""
         with self._condition:
             self._received_depth += 1
             pair = self._pairer.add_depth(message)
-            self._queue_pair(pair)
+            if pair is not None:
+                self._queue_pair(pair)
 
-    def _queue_pair(self, pair: RgbDepthPair | None) -> None:
-        """Queue a complete pair for the latest-frame worker."""
-        if pair is None:
-            return
+    def _queue_pair(self, pair: RgbDepthPair) -> None:
+        """Queue a complete RGB-D pair for the latest-frame worker."""
         self._paired_frames += 1
         self._last_pair_monotonic = time.monotonic()
         if not self._processing_enabled:
             return
-        if self._color_info is None or self._depth_info is None:
-            self._last_error_code = 'CAMERA_INFO_NOT_READY'
-            self._last_error_message = (
-                'paired frame arrived before both CameraInfo topics'
-            )
-            return
         pending = PendingPoseFrame(
-            pair=pair,
+            rgb=pair.rgb,
+            depth=pair.depth,
             color_info=self._color_info,
             depth_info=self._depth_info,
+            rgb_depth_delta_ns=pair.delta_ns,
             received_monotonic=time.monotonic(),
         )
+        self._set_pending(pending)
+
+    def _queue_rgb_only(self, message: CompressedImage) -> None:
+        """Queue RGB recognition when depth is absent or unmatched."""
+        self._last_pair_monotonic = time.monotonic()
+        if not self._processing_enabled:
+            return
+        pending = PendingPoseFrame(
+            rgb=message,
+            depth=None,
+            color_info=self._color_info,
+            depth_info=self._depth_info,
+            rgb_depth_delta_ns=None,
+            received_monotonic=time.monotonic(),
+        )
+        self._set_pending(pending)
+
+    def _set_pending(self, pending: PendingPoseFrame) -> None:
+        """Keep only the newest pending frame when latest-frame mode is on."""
         if self._pending is not None:
             if not self._latest_frame_only:
                 self._dropped_pending_frames += 1
@@ -482,7 +506,7 @@ class NativeDepthPoseNode(Node):
         }
 
     def _worker_loop(self) -> None:
-        """Process only the newest complete RGB-D pair."""
+        """Process the newest RGB frame, sampling depth when a pair exists."""
         try:
             self._load_algorithm()
         except Exception as error:
@@ -567,87 +591,105 @@ class NativeDepthPoseNode(Node):
         return self._registrar
 
     def _process_frame(self, pending: PendingPoseFrame) -> None:
-        """Decode, register, infer, estimate pose, and publish one pair."""
-        pair = pending.pair
+        """Detect on RGB always; sample depth and estimate pose only if present."""
         started = time.perf_counter()
         try:
-            rgb = decode_rgb(pair.rgb)
-            native_depth = self._algorithm_symbols['decode_depth'](
-                pair.depth.data, pair.depth.format
-            )
+            rgb = decode_rgb(pending.rgb)
             decode_ms = (time.perf_counter() - started) * 1000.0
-
-            registrar_started = time.perf_counter()
-            registrar = self._get_registrar(
-                pending.color_info, pending.depth_info
-            )
-            registration = registrar.register(
-                native_depth,
-                self._depth_scale,
-                minimum_depth_m=self._minimum_depth_m,
-                maximum_depth_m=self._maximum_depth_m,
-            )
-            registration_ms = (
-                time.perf_counter() - registrar_started
-            ) * 1000.0
-            if rgb.shape[:2] != registration.aligned_depth_m.shape:
-                raise ValueError(
-                    f'RGB shape {rgb.shape[:2]} != aligned depth shape '
-                    f'{registration.aligned_depth_m.shape}'
-                )
-            if pair.rgb.header.frame_id != registrar.color_camera.frame_name:
-                raise ValueError(
-                    'RGB header frame does not match color CameraInfo'
-                )
-
             with self._condition:
                 self._sequence += 1
                 sequence = self._sequence
-            pose_started = time.perf_counter()
-            result = self._algorithm.detect_and_estimate(
-                image=rgb,
-                aligned_depth_m=registration.aligned_depth_m,
-                camera=registrar.color_camera,
-                support_plane=self._support_plane,
-                color_order='BGR',
-                frame_key=f'{self._view}:{sequence}',
-                confidence_threshold=self._confidence_threshold,
+            detect_started = time.perf_counter()
+            detections = self._algorithm.detect(
+                rgb, 'BGR', self._confidence_threshold
             )
-            inference_pose_ms = (
-                time.perf_counter() - pose_started
-            ) * 1000.0
-            pose_array, observation_array = to_pose_and_observation_arrays(
-                result=result,
-                header=pair.rgb.header,
+            detect_ms = (time.perf_counter() - detect_started) * 1000.0
+
+            aligned_depth_m = None
+            registration_ms = 0.0
+            pose_result = None
+            inference_pose_ms = 0.0
+            if (
+                pending.depth is not None
+                and pending.color_info is not None
+                and pending.depth_info is not None
+            ):
+                native_depth = self._algorithm_symbols['decode_depth'](
+                    pending.depth.data, pending.depth.format
+                )
+                registrar_started = time.perf_counter()
+                registrar = self._get_registrar(
+                    pending.color_info, pending.depth_info
+                )
+                registration = registrar.register(
+                    native_depth,
+                    self._depth_scale,
+                    minimum_depth_m=self._minimum_depth_m,
+                    maximum_depth_m=self._maximum_depth_m,
+                )
+                registration_ms = (
+                    time.perf_counter() - registrar_started
+                ) * 1000.0
+                if rgb.shape[:2] == registration.aligned_depth_m.shape:
+                    aligned_depth_m = registration.aligned_depth_m
+                    pose_started = time.perf_counter()
+                    pose_result = self._algorithm.pose_estimator.estimate(
+                        detections,
+                        aligned_depth_m,
+                        registrar.color_camera,
+                        self._support_plane,
+                        frame_key=f'{self._view}:{sequence}',
+                    )
+                    inference_pose_ms = (
+                        time.perf_counter() - pose_started
+                    ) * 1000.0
+
+            observation_array = to_observation_array_from_detections(
+                detections=detections,
+                header=pending.rgb.header,
                 sequence=sequence,
                 view=self._view,
-                support_plane=self._support_plane,
-                additional_status_flags=tuple(self._additional_status_flags),
-                degrade_for_additional_flags=True,
+                aligned_depth_m=aligned_depth_m,
             )
-            self._pose_publisher.publish(pose_array)
             self._observation_publisher.publish(observation_array)
-            self._publish_overlay(rgb, result, pair.rgb.header)
+
+            valid_count = 0
+            if pose_result is not None:
+                pose_array, _unused = to_pose_and_observation_arrays(
+                    result=pose_result,
+                    header=pending.rgb.header,
+                    sequence=sequence,
+                    view=self._view,
+                    support_plane=self._support_plane,
+                    additional_status_flags=tuple(self._additional_status_flags),
+                    degrade_for_additional_flags=True,
+                )
+                self._pose_publisher.publish(pose_array)
+                valid_count = sum(
+                    item.validity == ToolPose.VALIDITY_VALID
+                    for item in pose_array.tools
+                )
+
+            self._publish_detection_overlay(
+                rgb, detections, observation_array, pending.rgb.header
+            )
 
             total_ms = (time.perf_counter() - started) * 1000.0
-            valid_count = sum(
-                item.validity == ToolPose.VALIDITY_VALID
-                for item in pose_array.tools
-            )
             diagnostics = {
                 'schema': 'pnu.native_depth_tool_pose_diagnostics.v1',
                 'view': self._view,
                 'sequence': sequence,
-                'source_stamp_sec': int(pair.rgb.header.stamp.sec),
-                'source_stamp_nanosec': int(pair.rgb.header.stamp.nanosec),
-                'frame_id': pair.rgb.header.frame_id,
-                'rgb_depth_delta_ns': pair.delta_ns,
+                'source_stamp_sec': int(pending.rgb.header.stamp.sec),
+                'source_stamp_nanosec': int(pending.rgb.header.stamp.nanosec),
+                'frame_id': pending.rgb.header.frame_id,
+                'rgb_depth_delta_ns': pending.rgb_depth_delta_ns,
+                'depth_sampled': aligned_depth_m is not None,
                 'decode_latency_ms': decode_ms,
+                'detect_latency_ms': detect_ms,
                 'depth_registration_latency_ms': registration_ms,
                 'inference_pose_latency_ms': inference_pose_ms,
                 'total_latency_ms': total_ms,
-                'aligned_depth_valid_ratio': registration.aligned_valid_ratio,
-                'instance_count': len(result.instances),
+                'instance_count': len(detections.instances),
                 'valid_pose_count': valid_count,
                 'pose_mode': 'PLANAR_4DOF_WITH_NORMAL_PRIOR',
                 'error_code': '',
@@ -658,8 +700,9 @@ class NativeDepthPoseNode(Node):
             now_monotonic = time.monotonic()
             if now_monotonic - self._last_publish_log_monotonic >= 1.0:
                 self.get_logger().info(
-                    f'published v1.4 tools: {len(result.instances)} instances; '
-                    f'valid_poses={valid_count}'
+                    f'published v1.4 tools: {len(detections.instances)} '
+                    f'instances; valid_poses={valid_count}; '
+                    f'depth_sampled={aligned_depth_m is not None}'
                 )
                 self._last_publish_log_monotonic = now_monotonic
             with self._condition:
@@ -669,18 +712,67 @@ class NativeDepthPoseNode(Node):
                 self._last_error_message = ''
         except Exception as error:
             self._set_error('FRAME_PROCESSING_FAILED', str(error))
-            self.get_logger().error(f'native-depth pose frame failed: {error}')
+            self.get_logger().error(f'tool recognition frame failed: {error}')
             diagnostics = {
                 'schema': 'pnu.native_depth_tool_pose_diagnostics.v1',
-                'source_stamp_sec': int(pair.rgb.header.stamp.sec),
-                'source_stamp_nanosec': int(pair.rgb.header.stamp.nanosec),
-                'rgb_depth_delta_ns': pair.delta_ns,
+                'source_stamp_sec': int(pending.rgb.header.stamp.sec),
+                'source_stamp_nanosec': int(pending.rgb.header.stamp.nanosec),
+                'rgb_depth_delta_ns': pending.rgb_depth_delta_ns,
                 'error_code': 'FRAME_PROCESSING_FAILED',
                 'error_message': str(error),
             }
             self._diagnostics_publisher.publish(
                 String(data=json.dumps(diagnostics, separators=(',', ':')))
             )
+
+    def _publish_detection_overlay(
+        self,
+        rgb: np.ndarray,
+        detections: Any,
+        observation_array: ToolObservation2DArray,
+        header: Any,
+    ) -> None:
+        """Publish mask overlay with longitudinal-axis midpoints."""
+        output = rgb.copy()
+        for item, observation in zip(
+            detections.instances, observation_array.instances, strict=False
+        ):
+            color = (
+                (45, 210, 245)
+                if observation.observation_point_depth_valid
+                else (30, 140, 255)
+            )
+            layer = output.copy()
+            layer[item.mask] = color
+            output = cv2.addWeighted(output, 0.72, layer, 0.28, 0.0)
+            x0, y0, x1, y1 = (
+                int(round(value)) for value in item.bbox_xyxy_px
+            )
+            cv2.rectangle(output, (x0, y0), (x1, y1), color, 2)
+            label = f'{item.class_name} {item.class_confidence:.2f}'
+            cv2.putText(
+                output,
+                label,
+                (x0, max(18, y0 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.46,
+                color,
+                2,
+            )
+            if observation.observation_point_valid:
+                u = int(round(observation.observation_point_uv_px[0]))
+                v = int(round(observation.observation_point_uv_px[1]))
+                cv2.circle(output, (u, v), 6, color, 2, cv2.LINE_AA)
+        success, encoded = cv2.imencode(
+            '.jpg', output, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
+        )
+        if not success:
+            raise RuntimeError('OpenCV could not encode pose overlay')
+        message = CompressedImage()
+        message.header = header
+        message.format = 'bgr8; jpeg compressed bgr8'
+        message.data = encoded.tobytes()
+        self._overlay_publisher.publish(message)
 
     def _publish_overlay(
         self, rgb: np.ndarray, result: Any, header: Any
@@ -744,20 +836,22 @@ class NativeDepthPoseNode(Node):
                 and now - self._last_pair_monotonic
                 <= self._input_freshness_sec
             )
+            depth_ok = bool(self._registrar_ready) if self._require_depth else True
             payload = {
                 'schema': 'pnu.native_depth_tool_pose_health.v1',
                 'ready': bool(
                     self._model_ready
-                    and self._registrar_ready
+                    and depth_ok
                     and input_fresh
                     and self._last_success_monotonic is not None
-                    and not self._additional_status_flags
+                    and (not self._require_depth or not self._additional_status_flags)
                     and not self._last_error_code
                 ),
                 'model_ready': self._model_ready,
                 'color_camera_info_ready': self._color_info is not None,
                 'depth_camera_info_ready': self._depth_info is not None,
                 'depth_registrar_ready': self._registrar_ready,
+                'require_depth': self._require_depth,
                 'input_fresh': input_fresh,
                 'processing_enabled': self._processing_enabled,
                 'depth_scale_verified': self._depth_scale_verified,

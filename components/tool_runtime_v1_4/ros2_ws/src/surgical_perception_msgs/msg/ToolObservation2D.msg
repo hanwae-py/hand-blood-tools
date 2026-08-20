@@ -22,6 +22,7 @@ float32[2] observation_point_uv_px
 bool observation_point_valid
 bool observation_point_inside_mask
 bool observation_point_depth_valid
+float32 observation_point_depth_m
 string observation_point_selection_mode
 float32 observation_point_boundary_clearance_px
 

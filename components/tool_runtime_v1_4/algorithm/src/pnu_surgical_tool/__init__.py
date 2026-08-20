@@ -9,7 +9,11 @@ from .depth_registration import (
     RigidTransform,
     validate_rgb_depth_timestamps,
 )
-from .planar_pose import PlanarPoseEstimator
+from .planar_pose import (
+    PlanarPoseEstimator,
+    longitudinal_origin_uv,
+    sample_depth_at_uv,
+)
 from .rfdetr_inference import DetectorConfig, SurgicalToolDetector
 from .types import (
     CameraCalibration,
@@ -29,6 +33,8 @@ __all__ = [
     "DepthRegistrationResult",
     "DepthToColorRegistrar",
     "PlanarPoseEstimator",
+    "longitudinal_origin_uv",
+    "sample_depth_at_uv",
     "rigid_transform_from_realsense_extrinsics",
     "RigidTransform",
     "SupportPlane",

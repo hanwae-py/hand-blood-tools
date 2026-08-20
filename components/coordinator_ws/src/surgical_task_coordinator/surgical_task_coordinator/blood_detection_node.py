@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """ROS 2 lifecycle adapter for the supplied RF-DETR Seg-Small Blood model.
 
-It receives compressed RGB images only.  While ACTIVE it publishes a binary
-Blood mask, blue JPEG overlay, and JSON observations.  It intentionally does
-not publish a robot suction pose: that requires a separately validated RGB-D
-target-selection contract.
+RGB recognition publishes 2D masks always. When a fresh compressedDepth frame
+matches the RGB stamp and resolution, each mask centroid is sampled for
+metric depth. Missing depth skips those fields. Set require_depth to skip
+frames that have no usable depth.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String
 
@@ -56,13 +56,39 @@ def mask_centroid(mask: np.ndarray) -> list[float] | None:
     return [float(moments["m10"] / moments["m00"]), float(moments["m01"] / moments["m00"])]
 
 
+def stamp_ns(message) -> int:
+    stamp = message.header.stamp
+    return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+
+
+def sample_centroid_depth_m(
+    depth_m: np.ndarray, centroid_xy: list[float] | None
+) -> float | None:
+    if centroid_xy is None or depth_m.ndim != 2:
+        return None
+    u = int(round(centroid_xy[0]))
+    v = int(round(centroid_xy[1]))
+    if v < 0 or u < 0 or v >= depth_m.shape[0] or u >= depth_m.shape[1]:
+        return None
+    value = float(depth_m[v, u])
+    if not np.isfinite(value) or value <= 0.0:
+        return None
+    return value
+
+
 class BloodDetectionNode(LifecycleNode):
     def __init__(self) -> None:
         super().__init__("blood_detection_node")
         self.declare_parameter("color_topic", "/synced/cam_4/color/image_raw/compressed")
+        self.declare_parameter(
+            "depth_topic", "/synced/cam_4/depth/image_rect_raw/compressedDepth"
+        )
         self.declare_parameter("checkpoint", "/home/hanwae/blood/blood_detection.pth")
         self.declare_parameter("confidence_threshold", 0.5)
         self.declare_parameter("optimize", True)
+        self.declare_parameter("require_depth", False)
+        self.declare_parameter("maximum_stamp_delta_ns", 1_000_000)
+        self.declare_parameter("depth_scale_m_per_unit", 0.001)
         self.declare_parameter("mask_topic", "/surgery/perception/cam4/blood_mask")
         self.declare_parameter("overlay_topic", "/surgery/images/cam4/blood_overlay/compressed")
         self.declare_parameter("semantics_topic", "/surgery/perception/cam4/blood/semantics/json")
@@ -77,6 +103,7 @@ class BloodDetectionNode(LifecycleNode):
         self._last_process_ms: float | None = None
         self._last_instances = 0
         self._last_error = ""
+        self._latest_depth: CompressedImage | None = None
         self._mask_pub = None
         self._overlay_pub = None
         self._semantics_pub = None
@@ -86,7 +113,13 @@ class BloodDetectionNode(LifecycleNode):
             CompressedImage,
             str(self.get_parameter("color_topic").value),
             self._on_color,
-            reliable_qos(),
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            CompressedImage,
+            str(self.get_parameter("depth_topic").value),
+            self._on_depth,
+            qos_profile_sensor_data,
         )
         self.create_timer(1.0, self._publish_status)
         self.get_logger().info("blood_detection_node created (unconfigured)")
@@ -135,7 +168,10 @@ class BloodDetectionNode(LifecycleNode):
         result = super().on_activate(state)
         if result == TransitionCallbackReturn.SUCCESS:
             self._active = True
-            self.get_logger().info("ACTIVE: processing RGB frames for Blood masks")
+            self.get_logger().info(
+                "ACTIVE: processing RGB frames for Blood masks "
+                f"(require_depth={bool(self.get_parameter('require_depth').value)})"
+            )
         return result
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -157,6 +193,37 @@ class BloodDetectionNode(LifecycleNode):
         self._model = None
         return TransitionCallbackReturn.SUCCESS
 
+    def _on_depth(self, message: CompressedImage) -> None:
+        self._latest_depth = message
+
+    def _aligned_depth_m(
+        self, rgb: CompressedImage, height: int, width: int
+    ) -> np.ndarray | None:
+        depth_msg = self._latest_depth
+        if depth_msg is None:
+            return None
+        maximum_delta_ns = int(self.get_parameter("maximum_stamp_delta_ns").value)
+        if abs(stamp_ns(rgb) - stamp_ns(depth_msg)) > maximum_delta_ns:
+            return None
+        try:
+            from pnu_surgical_tool.depth_registration import (
+                decode_compressed_depth_16uc1,
+            )
+
+            native = decode_compressed_depth_16uc1(depth_msg.data, depth_msg.format)
+        except Exception as exc:
+            self.get_logger().warn(
+                f"Blood depth decode skipped: {exc}",
+                throttle_duration_sec=5.0,
+            )
+            return None
+        if native.shape != (height, width):
+            return None
+        scale = float(self.get_parameter("depth_scale_m_per_unit").value)
+        depth_m = native.astype(np.float32) * scale
+        depth_m[native == 0] = 0.0
+        return depth_m
+
     def _on_color(self, message: CompressedImage) -> None:
         if not self._active or self._model is None:
             return
@@ -165,6 +232,10 @@ class BloodDetectionNode(LifecycleNode):
             image_bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
             if image_bgr is None:
                 raise RuntimeError("failed to decode compressed RGB image")
+            height, width = image_bgr.shape[:2]
+            depth_m = self._aligned_depth_m(message, height, width)
+            if bool(self.get_parameter("require_depth").value) and depth_m is None:
+                return
             torch = self._torch
             assert torch is not None
             if torch.cuda.is_available():
@@ -178,13 +249,19 @@ class BloodDetectionNode(LifecycleNode):
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             self._last_process_ms = (time.perf_counter() - started) * 1000.0
-            self._publish_result(message, image_bgr, detections)
+            self._publish_result(message, image_bgr, detections, depth_m)
         except Exception as exc:
             self._errors += 1
             self._last_error = str(exc)
             self.get_logger().error(f"Blood processing failed: {exc}", throttle_duration_sec=2.0)
 
-    def _publish_result(self, source: CompressedImage, image_bgr: np.ndarray, detections) -> None:
+    def _publish_result(
+        self,
+        source: CompressedImage,
+        image_bgr: np.ndarray,
+        detections,
+        depth_m: np.ndarray | None,
+    ) -> None:
         height, width = image_bgr.shape[:2]
         raw_masks = getattr(detections, "mask", None)
         if raw_masks is None:
@@ -208,15 +285,22 @@ class BloodDetectionNode(LifecycleNode):
             cv2.rectangle(overlay, (x0, y0), (x1, y1), (230, 80, 30), 2)
             cv2.putText(overlay, f"blood {float(confidence):.2f}", (x0, max(18, y0 - 5)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 80, 30), 2, cv2.LINE_AA)
-            instances.append({
+            centroid = mask_centroid(mask)
+            instance: dict[str, object] = {
                 "instance_id": item_id,
                 "class_id": 1,
                 "class_name": "blood",
                 "confidence": float(confidence),
                 "bbox_xyxy_px": [float(value) for value in box],
-                "centroid_xy_px": mask_centroid(mask),
+                "centroid_xy_px": centroid,
                 "mask_rle": encode_coco_rle(mask),
-            })
+            }
+            centroid_depth_m = (
+                sample_centroid_depth_m(depth_m, centroid) if depth_m is not None else None
+            )
+            if centroid_depth_m is not None:
+                instance["centroid_depth_m"] = centroid_depth_m
+            instances.append(instance)
 
         mask_msg = Image()
         mask_msg.header = source.header
@@ -237,7 +321,11 @@ class BloodDetectionNode(LifecycleNode):
         overlay_msg.data = encoded.tobytes()
         self._overlay_pub.publish(overlay_msg)
 
-        payload = {
+        union_centroid = mask_centroid(union_mask)
+        union_centroid_depth_m = (
+            sample_centroid_depth_m(depth_m, union_centroid) if depth_m is not None else None
+        )
+        payload: dict[str, object] = {
             "schema": "pnu.surgical_blood_observations.v1",
             "header": {
                 "stamp_sec": source.header.stamp.sec,
@@ -249,9 +337,13 @@ class BloodDetectionNode(LifecycleNode):
             "classes": ["blood"],
             "confidence_threshold": float(self.get_parameter("confidence_threshold").value),
             "inference_latency_ms": self._last_process_ms,
+            "depth_sampled": depth_m is not None,
             "instances": instances,
             "combined_blood_mask_rle": encode_coco_rle(union_mask),
+            "combined_blood_centroid_xy_px": union_centroid,
         }
+        if union_centroid_depth_m is not None:
+            payload["combined_blood_centroid_depth_m"] = union_centroid_depth_m
         self._semantics_pub.publish(String(data=json.dumps(payload, separators=(",", ":"))))
         self._frames_processed += 1
         self._last_instances = len(instances)
@@ -267,7 +359,9 @@ class BloodDetectionNode(LifecycleNode):
         self._health_pub.publish(String(data=json.dumps({
             "node": self.get_name(), "ready": self._model is not None,
             "lifecycle_state": state, "explicit_classes": ["blood"],
-            "background_is_implicit": True, "last_error": self._last_error,
+            "background_is_implicit": True,
+            "require_depth": bool(self.get_parameter("require_depth").value),
+            "last_error": self._last_error,
         })))
         self._diagnostics_pub.publish(String(data=json.dumps({
             "node": self.get_name(), "lifecycle_state": state,

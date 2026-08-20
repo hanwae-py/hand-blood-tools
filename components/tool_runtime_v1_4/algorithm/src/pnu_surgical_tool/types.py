@@ -104,6 +104,7 @@ class ToolInstanceResult:
     axis_anisotropy: float
     status_flags: tuple[str, ...]
     invalid_reason: str
+    observation_point_depth_m: float | None = None
 
 
 @dataclass

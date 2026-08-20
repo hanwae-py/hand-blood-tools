@@ -83,6 +83,31 @@ def _pca_endpoints(mask: np.ndarray, sign_policy: str) -> dict[str, Any]:
     }
 
 
+def longitudinal_origin_uv(
+    mask: np.ndarray, class_name: str
+) -> np.ndarray | None:
+    """Return the mask longitudinal-axis midpoint, or None if the mask is unusable."""
+    try:
+        return _pca_endpoints(mask, _sign_policy(class_name))["origin_uv"]
+    except ValueError:
+        return None
+
+
+def sample_depth_at_uv(depth_m: np.ndarray, uv: np.ndarray) -> float | None:
+    """Return metric depth at a pixel, or None when the sample is missing/invalid."""
+    depth = np.asarray(depth_m)
+    if depth.ndim != 2 or uv is None:
+        return None
+    u = int(round(float(uv[0])))
+    v = int(round(float(uv[1])))
+    if v < 0 or u < 0 or v >= depth.shape[0] or u >= depth.shape[1]:
+        return None
+    value = float(depth[v, u])
+    if not np.isfinite(value) or value <= 0.0:
+        return None
+    return value
+
+
 def _select_reference_pixel(
     mask: np.ndarray,
     desired_uv: np.ndarray,
@@ -367,4 +392,5 @@ class PlanarPoseEstimator:
             axis_anisotropy=anisotropy,
             status_flags=tuple(flags),
             invalid_reason=invalid_reason,
+            observation_point_depth_m=float(reference["depth_m"]),
         )
