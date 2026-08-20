@@ -176,6 +176,22 @@ bash scripts/run_blood_cam4.sh
 bash scripts/run_three_algorithm_trigger_mcap.sh
 ```
 
+### Three-algorithm trigger test: MCAP Tool/Hand + pig1 Blood (Tool v1.6)
+
+This test keeps Tool and Hand on the MCAP RGB-D stream, but replays local
+Blood test images only to the Blood node. It requires the external folder
+`$HOME/blood/pig1/imgs`; the pig images, labels, and checkpoint are not part
+of this repository. The v1.6 checkpoint must also be placed as described in
+`components/tool_runtime_v1_6/README_EN.md`.
+
+```bash
+bash scripts/run_three_algorithm_trigger_mcap_pig1_blood_v16.sh
+```
+
+When `DETECT_BLOOD` is sent, inspect the normal ROS output on
+`/surgery/images/cam4/blood_overlay/compressed`. `DETECT_TOOL` and
+`DETECT_HAND` continue to use the MCAP input.
+
 ### Three-algorithm trigger test with a live camera publisher
 
 ```bash
