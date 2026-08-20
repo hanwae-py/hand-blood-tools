@@ -62,6 +62,16 @@ def reliable_qos(depth: int = 5) -> QoSProfile:
     )
 
 
+def synced_stream_qos() -> QoSProfile:
+    """Match VIPLab /synced CAM4 publish QoS: reliable, volatile, KEEP_LAST 20."""
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=20,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
 def decode_rgb(message: CompressedImage) -> np.ndarray:
     """Decode a compressed RGB message to an OpenCV BGR image."""
     frame = cv2.imdecode(
@@ -158,30 +168,31 @@ class NativeDepthPoseNode(Node):
         self._support_plane = None
         self._algorithm_symbols: dict[str, Any] = {}
 
+        camera_qos = synced_stream_qos()
         self._subscriptions = [
             self.create_subscription(
                 CameraInfo,
                 self._color_info_topic,
                 self._receive_color_info,
-                qos_profile_sensor_data,
+                camera_qos,
             ),
             self.create_subscription(
                 CameraInfo,
                 self._depth_info_topic,
                 self._receive_depth_info,
-                qos_profile_sensor_data,
+                camera_qos,
             ),
             self.create_subscription(
                 CompressedImage,
                 self._rgb_topic,
                 self._receive_rgb,
-                qos_profile_sensor_data,
+                camera_qos,
             ),
             self.create_subscription(
                 CompressedImage,
                 self._depth_topic,
                 self._receive_depth,
-                qos_profile_sensor_data,
+                camera_qos,
             ),
         ]
         if self._processing_gate_topic:

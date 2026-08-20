@@ -20,7 +20,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
 
@@ -29,6 +29,16 @@ def reliable_qos(depth: int = 1) -> QoSProfile:
     return QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=depth,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def synced_stream_qos() -> QoSProfile:
+    """Match VIPLab /synced CAM4 publish QoS: reliable, volatile, KEEP_LAST 20."""
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=20,
         reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.VOLATILE,
     )
@@ -127,29 +137,30 @@ class BloodDetectionNode(LifecycleNode):
         self._semantics_pub = None
         self._health_pub = None
         self._diagnostics_pub = None
+        camera_qos = synced_stream_qos()
         self.create_subscription(
             CompressedImage,
             str(self.get_parameter("color_topic").value),
             self._on_color,
-            qos_profile_sensor_data,
+            camera_qos,
         )
         self.create_subscription(
             CompressedImage,
             str(self.get_parameter("depth_topic").value),
             self._on_depth,
-            qos_profile_sensor_data,
+            camera_qos,
         )
         self.create_subscription(
             CameraInfo,
             str(self.get_parameter("color_camera_info_topic").value),
             self._on_color_info,
-            qos_profile_sensor_data,
+            camera_qos,
         )
         self.create_subscription(
             CameraInfo,
             str(self.get_parameter("depth_camera_info_topic").value),
             self._on_depth_info,
-            qos_profile_sensor_data,
+            camera_qos,
         )
         self.create_timer(1.0, self._publish_status)
         self.get_logger().info("blood_detection_node created (unconfigured)")

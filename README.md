@@ -89,6 +89,17 @@ bash scripts/build_all.sh
 
 ## Input modes
 
+CAM4 subscribe matches VIPLab `/synced/cam_4` publish 1:1. QoS is reliable / volatile / KEEP_LAST 20.
+
+| Role | VIPLab topic | ROS 2 type |
+|---|---|---|
+| CAM4 RGB | `/synced/cam_4/color/image_raw/compressed` | `sensor_msgs/CompressedImage` |
+| CAM4 color CameraInfo | `/synced/cam_4/color/camera_info` | `sensor_msgs/CameraInfo` |
+| CAM4 depth | `/synced/cam_4/depth/image_rect_raw/compressedDepth` | `sensor_msgs/CompressedImage` |
+| CAM4 depth CameraInfo | `/synced/cam_4/depth/camera_info` | `sensor_msgs/CameraInfo` |
+
+Set those names in `config/system.env`. Tool, Hand, and Blood all subscribe to the same four topics.
+
 | Mode | What starts | Configuration needed |
 |---|---|---|
 | Real camera | Camera publisher already running on ROS | `config/system.env` camera topic names/QoS/domain |
@@ -107,10 +118,9 @@ add a raw-to-compressed RGB-D bridge before running Tool v1.6 on AVI/H5.
 ## Depth
 
 All three nodes can consume the same RealSense metric depth stream.
-The live/MCAP contract is RealSense `16UC1` `compressedDepth` on
-`DEPTH_TOPIC` (default `/synced/cam_4/depth/image_rect_raw/compressedDepth`).
-Each uint16 unit is millimetres and is converted with `0.001 m/unit`. This is
-**not** normalized monocular depth.
+The live/MCAP depth topic is VIPLab `/synced/cam_4/depth/image_rect_raw/compressedDepth`
+(`sensor_msgs/CompressedImage`, `16UC1` `compressedDepth`). Each uint16 unit is millimetres
+and is converted with `0.001 m/unit`. This is **not** normalized monocular depth.
 
 | Node | RGB without depth | When matching depth is present |
 |---|---|---|

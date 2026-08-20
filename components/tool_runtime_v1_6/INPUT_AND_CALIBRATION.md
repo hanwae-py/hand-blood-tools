@@ -2,12 +2,16 @@
 
 ## 입력 메시지
 
-| 역할 | ROS type | 요구 사항 |
+CAM4 입력은 VIPLab `/synced/cam_4` publish와 1대1이다. Tool/Hand/Blood가 같은 네 토픽을 구독한다. QoS는 reliable / volatile / KEEP_LAST 20.
+
+| 역할 | VIPLab topic | ROS type |
 |---|---|---|
-| RGB | `sensor_msgs/msg/CompressedImage` | JPEG/PNG color image, color CameraInfo와 같은 optical frame |
-| Native depth | `sensor_msgs/msg/CompressedImage` | `format="16UC1; compressedDepth png"` |
-| RGB intrinsic | `sensor_msgs/msg/CameraInfo` | RGB width, height, K, D, frame_id |
-| Depth intrinsic | `sensor_msgs/msg/CameraInfo` | Depth width, height, K, D, frame_id |
+| CAM4 RGB | `/synced/cam_4/color/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` |
+| CAM4 color CameraInfo | `/synced/cam_4/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| CAM4 depth | `/synced/cam_4/depth/image_rect_raw/compressedDepth` | `sensor_msgs/msg/CompressedImage` |
+| CAM4 depth CameraInfo | `/synced/cam_4/depth/camera_info` | `sensor_msgs/msg/CameraInfo` |
+
+RGB는 JPEG color image이고 color CameraInfo와 같은 optical frame을 쓴다. Depth format은 `16UC1; compressedDepth png`다.
 
 RGB와 depth는 `maximum_stamp_delta_ns` 이내에서 one-to-one으로 pair한다. 기준 설정은 1 ms이며
 reference bag에서 측정한 최근접 stamp 차이는 median 약 0.063 ms다.
