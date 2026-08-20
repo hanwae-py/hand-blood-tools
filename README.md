@@ -16,7 +16,13 @@ This folder deliberately does **not** include checkpoints, MCAP, H5, AVI,
 recorded images, Python virtual environments, or ROS `build/install/log`
 folders. They must be supplied locally on the destination PC.
 
-## Required external checkpoint
+## Required external checkpoints
+
+Download the Tool RF-DETR checkpoint from
+[this Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
+Newer trained weights will be added to the same folder. Copy the `.pth` you
+want to use onto the destination PC and set `TOOL_V14_CHECKPOINT` in
+`config/system.env` to that local path.
 
 Download the Blood RF-DETR Seg-Small checkpoint from
 [Google Drive](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view),

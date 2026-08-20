@@ -1,0 +1,14 @@
+name: hand
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    - opencv-python==4.11.0.86
+    - numpy==1.26.4
+    - mediapipe==0.10.18
+    - torch==2.11.0
+    - transformers==5.12.1
+    - pillow==12.1.1
+    - h5py==3.16.0
