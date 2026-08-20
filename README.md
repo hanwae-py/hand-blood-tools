@@ -16,6 +16,12 @@ This folder deliberately does **not** include checkpoints, MCAP, H5, AVI,
 recorded images, Python virtual environments, or ROS `build/install/log`
 folders. They must be supplied locally on the destination PC.
 
+## Required external checkpoint
+
+Download the Blood RF-DETR Seg-Small checkpoint from
+[Google Drive](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view),
+then set `BLOOD_CHECKPOINT` in `config/system.env` to its local `.pth` path.
+
 ## First setup on another PC
 
 1. Install Ubuntu/WSL, ROS 2 Jazzy, NVIDIA CUDA/WSL GPU support, and the
