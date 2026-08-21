@@ -132,7 +132,7 @@ Tool defaults: `confidence_threshold` 0.30, class-agnostic bounding-box NMS
 (IoU 0.80), `require_depth:=false`. Missing depth skips metric fields and still
 publishes 2D. Set `require_depth:=true` to drop frames that have no usable
 depth. Tool also publishes a pose-axis overlay on
-`/surgery/images/cam4/pose_overlay/compressed` when a pose result exists.
+`/perception/cam_4/tool/pose_overlay/compressed` when a pose result exists.
 
 Hand's run script sets `depth_source:=real`, so the deploy path is the
 RealSense `compressedDepth` topic, not Depth-Anything V2. `depth_source:=mono`
@@ -189,7 +189,7 @@ bash scripts/run_three_algorithm_trigger_mcap_pig1_blood_v16.sh
 ```
 
 When `DETECT_BLOOD` is sent, inspect the normal ROS output on
-`/surgery/images/cam4/blood_overlay/compressed`. `DETECT_TOOL` and
+`/perception/cam_4/blood/overlay/compressed`. `DETECT_TOOL` and
 `DETECT_HAND` continue to use the MCAP input.
 
 ### Three-algorithm trigger test with a live camera publisher

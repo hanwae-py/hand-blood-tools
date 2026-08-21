@@ -4,12 +4,12 @@
 
 | Topic | Type | 의미 |
 |---|---|---|
-| `/surgery/perception/cam4/tool_poses` | `surgical_perception_msgs/msg/ToolPoseArray` | class와 metric constrained pose |
-| `/surgery/perception/cam4/observations` | `surgical_perception_msgs/msg/ToolObservation2DArray` | bbox, mask RLE, 2D 관측점 |
-| `/surgery/images/cam4/detection_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | 사람이 확인하는 overlay |
-| `/surgery/images/cam4/pose_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | pose 축 디버그 overlay |
-| `/surgery/perception/rfdetr/diagnostics/json` | `std_msgs/msg/String` | 프레임 처리 진단 JSON |
-| `/surgery/perception/rfdetr/health` | `std_msgs/msg/String` | readiness와 오류 상태 JSON |
+| `/perception/cam_4/tool/poses` | `surgical_perception_msgs/msg/ToolPoseArray` | class와 metric constrained pose |
+| `/perception/cam_4/tool/observations` | `surgical_perception_msgs/msg/ToolObservation2DArray` | bbox, mask RLE, 2D 관측점 |
+| `/perception/cam_4/tool/overlay/compressed` | `sensor_msgs/msg/CompressedImage` | 사람이 확인하는 overlay |
+| `/perception/cam_4/tool/pose_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | pose 축 디버그 overlay |
+| `/perception/cam_4/tool/diagnostics` | `std_msgs/msg/String` | 프레임 처리 진단 JSON |
+| `/perception/cam_4/tool/health` | `std_msgs/msg/String` | readiness와 오류 상태 JSON |
 
 `tool_poses`와 `observations`는 reliable/volatile QoS를 사용한다. Overlay는 sensor-data QoS다.
 

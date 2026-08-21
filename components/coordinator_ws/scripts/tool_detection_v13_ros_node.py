@@ -88,20 +88,20 @@ class ToolDetectionV13Node(LifecycleNode):
             "camera_info_topic", "/synced/cam_4/color/camera_info"
         )
         self.declare_parameter(
-            "pose_topic", "/surgery/perception/cam4/tool_poses"
+            "pose_topic", "/perception/cam_4/tool/poses"
         )
         self.declare_parameter(
-            "observation_topic", "/surgery/perception/cam4/observations"
+            "observation_topic", "/perception/cam_4/tool/observations"
         )
         self.declare_parameter(
-            "semantics_topic", "/surgery/perception/cam4/semantics/json"
+            "semantics_topic", "/perception/cam_4/tool/semantics"
         )
         self.declare_parameter(
-            "overlay_topic", "/surgery/images/cam4/detection_overlay/compressed"
+            "overlay_topic", "/perception/cam_4/tool/overlay/compressed"
         )
-        self.declare_parameter("health_topic", "/surgery/perception/rfdetr/health")
+        self.declare_parameter("health_topic", "/perception/cam_4/tool/health")
         self.declare_parameter(
-            "diagnostics_topic", "/surgery/perception/rfdetr/diagnostics/json"
+            "diagnostics_topic", "/perception/cam_4/tool/diagnostics"
         )
         self.declare_parameter("threshold", 0.5)
         self.declare_parameter("optimize", True)
@@ -574,7 +574,7 @@ class ToolDetectionV13Node(LifecycleNode):
             for item in detections.instances
         ]
         return self._imports["ToolFrameResult"](
-            frame_key=f"cam4:{self._sequence}",
+            frame_key=f"cam_4:{self._sequence}",
             camera_frame_name=frame_id,
             model_version=detections.model_version,
             ontology_version=detections.ontology_version,
@@ -594,7 +594,7 @@ class ToolDetectionV13Node(LifecycleNode):
             self._last_source_stamp_nanosec = int(rgb_message.header.stamp.nanosec)
             self._last_source_frame_id = str(rgb_message.header.frame_id)
             self._last_sequence = self._sequence
-            self._last_observation_id = f"cam4:{self._sequence}"
+            self._last_observation_id = f"cam_4:{self._sequence}"
             decode_started = time.perf_counter()
             if isinstance(rgb_message, CompressedImage):
                 image_bgr = self.bridge.compressed_imgmsg_to_cv2(
@@ -645,7 +645,7 @@ class ToolDetectionV13Node(LifecycleNode):
                     depth,
                     camera,
                     self.support_plane,
-                    frame_key=f"cam4:{self._sequence}",
+                    frame_key=f"cam_4:{self._sequence}",
                 )
             self._last_pose_ms = (time.perf_counter() - pose_started) * 1000.0
 
@@ -653,8 +653,8 @@ class ToolDetectionV13Node(LifecycleNode):
                 stamp=rgb_message.header.stamp,
                 frame_id=frame_id,
                 sequence=self._sequence,
-                observation_id=f"cam4:{self._sequence}",
-                view="cam4",
+                observation_id=f"cam_4:{self._sequence}",
+                view="cam_4",
             )
             pose_array, observation_array = self._imports["to_ros_arrays"](
                 result, metadata, self.support_plane
@@ -672,7 +672,7 @@ class ToolDetectionV13Node(LifecycleNode):
                     "frame_id": frame_id,
                 },
                 "sequence": self._sequence,
-                "observation_id": f"cam4:{self._sequence}",
+                "observation_id": f"cam_4:{self._sequence}",
                 "inference_latency_ms": self._last_inference_ms,
                 "instances": [
                     {
@@ -855,7 +855,7 @@ class ToolDetectionV13Node(LifecycleNode):
         }
         diagnostics = {
             "schema": "pnu.rfdetr_diagnostics.v2",
-            "view": "cam4",
+            "view": "cam_4",
             "source_stamp_sec": self._last_source_stamp_sec,
             "source_stamp_nanosec": self._last_source_stamp_nanosec,
             "frame_id": self._last_source_frame_id,

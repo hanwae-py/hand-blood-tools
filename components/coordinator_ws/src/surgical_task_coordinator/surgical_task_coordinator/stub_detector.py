@@ -21,7 +21,7 @@ and holding a dummy allocation, so switching turns has realistic timing.
 Launch one per role, e.g.:
     ros2 run surgical_task_coordinator stub_detector --ros-args \
         -r __node:=tool_detection_node \
-        -p result_topic:=/surgery/perception/cam4/tool_target_pose
+        -p result_topic:=/perception/cam_4/tool/target_pose
 """
 import time
 
@@ -37,7 +37,7 @@ class StubDetector(LifecycleNode):
     def __init__(self):
         super().__init__('stub_detector')
 
-        self.declare_parameter('result_topic', '/surgery/perception/cam4/stub_target_pose')
+        self.declare_parameter('result_topic', '/perception/cam_4/tool/target_pose')
         self.declare_parameter('health_topic', '')      # '' -> derive from node name
         self.declare_parameter('frame_id', 'cam4_color_optical_frame')
         self.declare_parameter('publish_rate_hz', 10.0)
@@ -56,7 +56,9 @@ class StubDetector(LifecycleNode):
 
         health_topic = self.get_parameter('health_topic').value
         if not health_topic:
-            health_topic = f'/surgery/perception/{self.get_name()}/health'
+            name = self.get_name()
+            task = 'hand' if 'hand' in name else 'blood' if 'blood' in name else 'tool'
+            health_topic = f'/perception/cam_4/{task}/health'
         self._pub_health = self.create_lifecycle_publisher(String, health_topic, 10)
         self.create_timer(1.0, self._publish_health)
 

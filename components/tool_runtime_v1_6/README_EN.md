@@ -19,7 +19,7 @@ helpers used by Hand and Blood.
 - Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h). Set the local `.pth` path as `TOOL_CHECKPOINT` in `config/system.env`.
 - Default confidence threshold: 0.30
 - Class-agnostic bounding-box NMS: enabled, IoU 0.80
-- Pose-axis debug overlay: `/surgery/images/cam4/pose_overlay/compressed`
+- Pose-axis debug overlay: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## Build
 

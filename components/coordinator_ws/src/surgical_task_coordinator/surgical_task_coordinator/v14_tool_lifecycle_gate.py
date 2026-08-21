@@ -22,7 +22,7 @@ class V14ToolLifecycleGate(LifecycleNode):
     def __init__(self):
         super().__init__('tool_detection_node')
         self.declare_parameter(
-            'gate_topic', '/surgery/perception/cam4/tool_processing_enabled'
+            'gate_topic', '/perception/cam_4/tool/processing_enabled'
         )
         self._topic = str(self.get_parameter('gate_topic').value)
         self._publisher = self.create_publisher(Bool, self._topic, reliable_qos())

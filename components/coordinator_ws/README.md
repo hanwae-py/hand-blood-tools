@@ -134,7 +134,7 @@ read that file as the reference implementation.
 3. Consume camera frames only while `ACTIVE`.
 4. Publish `geometry_msgs/PoseStamped` on your result topic when you find your
    target, and keep publishing while you still see it.
-5. Publish `std_msgs/String` health on its agreed health topic (currently `/surgery/perception/rfdetr/health` for Tool and `/surgery/perception/handkeypoint/health` for Hand).
+5. Publish `std_msgs/String` health on its agreed health topic (currently `/perception/cam_4/tool/health` for Tool and `/perception/cam_4/hand/health` for Hand).
 
 Everything else is yours: which camera topic you read, what your model is, and
 what richer messages you publish for other consumers.
@@ -147,12 +147,12 @@ coordinator simply does not need it.
 
 | Detector | Topic |
 | --- | --- |
-| tool | `/surgery/perception/cam4/tool_target_pose` |
-| hand | `/surgery/perception/cam4/hand_target_pose` |
-| blood | `/surgery/perception/cam4/blood_target_pose` |
+| tool | `/perception/cam_4/tool/target_pose` |
+| hand | `/perception/cam_4/hand/target_pose` |
+| blood | `/perception/cam_4/blood/target_pose` |
 
 The **hand** target topic is real and already published by `hand_keypoint_ros`.
-The Blood target-pose name is still a coordinator proposal used by the stub. Surgical Tool Component v1.3 now publishes `/surgery/perception/cam4/tool_poses`, but these are per-instance camera-frame pose states rather than the old single `tool_target_pose` proposal. They are not robot-ready until the CAM4 support-plane calibration is supplied and each entry reports valid position/orientation. The real Blood contract is still unavailable.
+The Blood target-pose name is still a coordinator proposal used by the stub. Surgical Tool Component v1.3 now publishes `/perception/cam_4/tool/poses`, but these are per-instance camera-frame pose states rather than the old single `tool_target_pose` proposal. They are not robot-ready until the CAM4 support-plane calibration is supplied and each entry reports valid position/orientation. The real Blood contract is still unavailable.
 
 ### Verified detector output interfaces (2026-08-12)
 
@@ -160,24 +160,24 @@ The current real **Hand Detection** node publishes these five outputs:
 
 | Topic | Type | Meaning |
 | --- | --- | --- |
-| `/surgery/perception/cam4/hand_keypoints` | `hand_keypoint_interfaces/msg/HandKeypoints` | 2D keypoints, real-depth 3D keypoints, handedness, and palm pose |
-| `/surgery/perception/cam4/hand_target_pose` | `geometry_msgs/msg/PoseStamped` | Robot-ready palm target when a valid palm pose exists |
-| `/surgery/images/cam4/hand_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | JPEG visualization of detected hands |
-| `/surgery/perception/handkeypoint/health` | `std_msgs/msg/String` | JSON lifecycle, readiness, and input-freshness status |
-| `/surgery/perception/handkeypoint/diagnostics/json` | `std_msgs/msg/String` | JSON processing-rate, latency, frame, and error counters |
+| `/perception/cam_4/hand/keypoints` | `hand_keypoint_interfaces/msg/HandKeypoints` | 2D keypoints, real-depth 3D keypoints, handedness, and palm pose |
+| `/perception/cam_4/hand/target_pose` | `geometry_msgs/msg/PoseStamped` | Robot-ready palm target when a valid palm pose exists |
+| `/perception/cam_4/hand/overlay/compressed` | `sensor_msgs/msg/CompressedImage` | JPEG visualization of detected hands |
+| `/perception/cam_4/hand/health` | `std_msgs/msg/String` | JSON lifecycle, readiness, and input-freshness status |
+| `/perception/cam_4/hand/diagnostics` | `std_msgs/msg/String` | JSON processing-rate, latency, frame, and error counters |
 
 The current local real **Surgical Tool Component v1.3.0-rc1** adapter publishes these six outputs:
 
 | Topic | Type | Meaning |
 | --- | --- | --- |
-| `/surgery/perception/cam4/tool_poses` | `surgical_perception_msgs/msg/ToolPoseArray` | Canonical per-instance pose state and validity; currently INVALID until the calibrated CAM4 support plane is supplied |
-| `/surgery/perception/cam4/observations` | `surgical_perception_msgs/msg/ToolObservation2DArray` | Canonical class, bbox, lossless COCO RLE mask, and observation-point evidence |
-| `/surgery/images/cam4/detection_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | JPEG visualization of tool detections |
-| `/surgery/perception/rfdetr/health` | `std_msgs/msg/String` | JSON model and input health status |
-| `/surgery/perception/rfdetr/diagnostics/json` | `std_msgs/msg/String` | JSON performance and diagnostic information |
-| `/surgery/perception/cam4/semantics/json` | `std_msgs/msg/String` | Temporary compatibility JSON; canonical consumers should use the typed observation and pose topics |
+| `/perception/cam_4/tool/poses` | `surgical_perception_msgs/msg/ToolPoseArray` | Canonical per-instance pose state and validity; currently INVALID until the calibrated CAM4 support plane is supplied |
+| `/perception/cam_4/tool/observations` | `surgical_perception_msgs/msg/ToolObservation2DArray` | Canonical class, bbox, lossless COCO RLE mask, and observation-point evidence |
+| `/perception/cam_4/tool/overlay/compressed` | `sensor_msgs/msg/CompressedImage` | JPEG visualization of tool detections |
+| `/perception/cam_4/tool/health` | `std_msgs/msg/String` | JSON model and input health status |
+| `/perception/cam_4/tool/diagnostics` | `std_msgs/msg/String` | JSON performance and diagnostic information |
+| `/perception/cam_4/tool/semantics` | `std_msgs/msg/String` | Temporary compatibility JSON; canonical consumers should use the typed observation and pose topics |
 
-`/surgery/images/cam4/detected/compressed` and `/surgery/perception/cam4/mayo_tool_observations` remain removed/deprecated and are not published by v1.3.
+`/perception/cam_4/tool/detected/compressed` and `/perception/cam_4/tool/mayo_observations` remain removed/deprecated and are not published by v1.3.
 ### Visualize Tool and Hand overlay images
 
 Keep the detector test running. Open a separate sourced WSL terminal for each viewer.
@@ -189,7 +189,7 @@ source /opt/ros/jazzy/setup.bash
 source ~/surgical_robot/coordinator_ws/install/setup.bash
 
 ros2 run image_view image_view --ros-args \
-  -p image:=/surgery/images/cam4/detection_overlay \
+  -p image:=/perception/cam_4/tool/overlay \
   -p image_transport:=compressed
 ```
 
@@ -200,15 +200,15 @@ source /opt/ros/jazzy/setup.bash
 source ~/hand_keypoints_ros/ros2_ws/install/setup.bash
 
 ros2 run image_view image_view --ros-args \
-  -p image:=/surgery/images/cam4/hand_overlay \
+  -p image:=/perception/cam_4/hand/overlay \
   -p image_transport:=compressed
 ```
 
 Before opening a viewer, confirm that its compressed topic is publishing:
 
 ```bash
-ros2 topic hz /surgery/images/cam4/detection_overlay/compressed
-ros2 topic hz /surgery/images/cam4/hand_overlay/compressed
+ros2 topic hz /perception/cam_4/tool/overlay/compressed
+ros2 topic hz /perception/cam_4/hand/overlay/compressed
 ```
 
 Press `Ctrl+C` after checking each rate. With `image_transport:=compressed`, pass the base topic to the `image` parameter; do not append `/compressed`. Use `-p image:=...`, not `-r image:=...`, with the installed Jazzy `image_view` executable. During signal-driven take-turn operation, only the currently active detector updates its overlay. During the parallel test, open both commands in separate terminals to watch Tool and Hand results at the same time.
@@ -471,10 +471,10 @@ bash scripts/run_real_tool_hand_take_turn_test.sh
 The script uses the matched files under `~/surgical_robot/test_data/cam4_0618`: RGB AVI, raw depth HDF5, and calibration JSON. It publishes RGB, real depth, and CameraInfo at 15 Hz without loading the complete HDF5 into RAM. It then:
 
 1. configures and activates the real v1.3 Tool node;
-2. confirms a downstream subscriber receives both `/surgery/perception/cam4/observations` and `/surgery/perception/cam4/tool_poses`;
+2. confirms a downstream subscriber receives both `/perception/cam_4/tool/observations` and `/perception/cam_4/tool/poses`;
 3. deactivates and cleans the Tool node to release GPU memory;
 4. configures and activates the real Hand node with `depth_source:=real`;
-5. confirms a downstream subscriber receives `/surgery/perception/cam4/hand_keypoints` with valid depth-backed 3D data and a palm pose;
+5. confirms a downstream subscriber receives `/perception/cam_4/hand/keypoints` with valid depth-backed 3D data and a palm pose;
 6. reports success only after one receiver has received all three typed outputs.
 
 Expected receiver lines are `RECEIVED TOOL POSE ARRAY v1.3`, `RECEIVED TOOL RESULT v1.3`, `RECEIVED HAND RESULT`, and `SUCCESS: downstream node received both real detector outputs`. Tool detection/masks are real; Tool pose entries remain explicitly invalid until the missing calibrated support-plane parameters are supplied. Hand output includes HDF5-depth-based 3D keypoints and palm pose.
@@ -575,7 +575,7 @@ The exact commands and raw test interpretation are recorded in
 
 The first PNU-4 v1.3 run published only about 0.125 Hz. Live diagnostics separated `last_inference_ms=193.21` from `last_total_ms=7854.82`, proving that GPU inference was not the eight-second bottleneck. The delivered reference ROS mapper encoded every 1280x720 instance mask with a Python pixel loop; with roughly 9-12 tools, COCO-RLE conversion dominated the complete frame time.
 
-The host adapter now replaces only that encoder with the equivalent compiled `pycocotools` COCO-RLE implementation while preserving the v1.3 message format. Validation still passes. On the same PNU-4 15 FPS frame-by-frame RGB/HDF5 replay, `/surgery/perception/cam4/observations` improved to approximately **8.03 Hz**. This is about a 64x improvement over 0.125 Hz, but it is still below the 15 FPS source rate and is not yet a real-time pass.
+The host adapter now replaces only that encoder with the equivalent compiled `pycocotools` COCO-RLE implementation while preserving the v1.3 message format. Validation still passes. On the same PNU-4 15 FPS frame-by-frame RGB/HDF5 replay, `/perception/cam_4/tool/observations` improved to approximately **8.03 Hz**. This is about a 64x improvement over 0.125 Hz, but it is still below the 15 FPS source rate and is not yet a real-time pass.
 
 A live overlay message was independently decoded successfully (`jpeg`, 1280x720, 167137 bytes, non-black pixel distribution). A black `image_view` window was therefore a viewer discovery/environment issue, not a bad overlay publisher.
 
@@ -591,8 +591,8 @@ For a beginner explanation of the architecture, important runtime files, lifecyc
 - Tool and Hand use real detector nodes. Blood is still a lifecycle stub until
   its RF-DETR checkpoint/configuration is supplied.
 - The local Tool node does not yet publish `tool_target_pose`,
-  `/surgery/images/cam4/detected/compressed`, or
-  `/surgery/perception/cam4/mayo_tool_observations`; those remain proposed or
+  `/perception/cam_4/tool/detected/compressed`, or
+  `/perception/cam_4/tool/mayo_observations`; those remain proposed or
   contract-only interfaces.
 - The robot node is a stub that moves nowhere. The three action definitions are
   a proposal for the robot-control team, not something they have accepted.

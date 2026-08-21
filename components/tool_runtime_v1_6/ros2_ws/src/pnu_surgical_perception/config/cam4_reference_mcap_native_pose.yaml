@@ -9,13 +9,13 @@ native_depth_tool_pose:
     sync_queue_size: 8
     latest_frame_only: true
 
-    pose_topic: "/surgery/perception/cam4/tool_poses"
-    observation_topic: "/surgery/perception/cam4/observations"
-    overlay_topic: "/surgery/images/cam4/detection_overlay/compressed"
-    pose_overlay_topic: "/surgery/images/cam4/pose_overlay/compressed"
-    diagnostics_topic: "/surgery/perception/rfdetr/diagnostics/json"
-    health_topic: "/surgery/perception/rfdetr/health"
-    view: "cam4"
+    pose_topic: "/perception/cam_4/tool/poses"
+    observation_topic: "/perception/cam_4/tool/observations"
+    overlay_topic: "/perception/cam_4/tool/overlay/compressed"
+    pose_overlay_topic: "/perception/cam_4/tool/pose_overlay/compressed"
+    diagnostics_topic: "/perception/cam_4/tool/diagnostics"
+    health_topic: "/perception/cam_4/tool/health"
+    view: "cam_4"
 
     confidence_threshold: 0.3
     enable_class_agnostic_nms: true

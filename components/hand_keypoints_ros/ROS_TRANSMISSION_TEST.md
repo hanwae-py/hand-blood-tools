@@ -170,10 +170,10 @@ language-independent.
 
 | Topic | Type | QoS | Content |
 | --- | --- | --- | --- |
-| `/surgery/perception/rfdetr/health` | `std_msgs/msg/String` | Publisher contract | Health JSON |
-| `/surgery/perception/cam4/semantics/json` | `std_msgs/msg/String` | Reliable, Volatile, depth 10 | Class, confidence, bbox, COCO RLE mask and mask centroid |
-| `/surgery/images/cam4/detection_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | Best Effort, Volatile, depth 5 | JPEG overlay containing mask, bbox, class, confidence and centroid |
-| `/surgery/perception/rfdetr/diagnostics/json` | `std_msgs/msg/String` | Publisher contract | Diagnostics JSON |
+| `/perception/cam_4/tool/health` | `std_msgs/msg/String` | Publisher contract | Health JSON |
+| `/perception/cam_4/tool/semantics` | `std_msgs/msg/String` | Reliable, Volatile, depth 10 | Class, confidence, bbox, COCO RLE mask and mask centroid |
+| `/perception/cam_4/tool/overlay/compressed` | `sensor_msgs/msg/CompressedImage` | Best Effort, Volatile, depth 5 | JPEG overlay containing mask, bbox, class, confidence and centroid |
+| `/perception/cam_4/tool/diagnostics` | `std_msgs/msg/String` | Publisher contract | Diagnostics JSON |
 
 All types are standard ROS messages, so the subscriber does not need a
 custom interface package.
@@ -209,26 +209,26 @@ static-peer environment when these processes start.
 Discover the topics:
 
 ```bash
-ros2 topic list --no-daemon | grep surgery
+ros2 topic list --no-daemon | grep perception
 ```
 
 Receive health:
 
 ```bash
-ros2 topic echo /surgery/perception/rfdetr/health --once --no-daemon
+ros2 topic echo /perception/cam_4/tool/health --once --no-daemon
 ```
 
 Receive one structured detection result:
 
 ```bash
-ros2 topic echo /surgery/perception/cam4/semantics/json --once --no-daemon
+ros2 topic echo /perception/cam_4/tool/semantics --once --no-daemon
 ```
 
 Inspect publisher type and QoS:
 
 ```bash
-ros2 topic info --verbose /surgery/perception/cam4/semantics/json --no-daemon
-ros2 topic info --verbose /surgery/images/cam4/detection_overlay/compressed --no-daemon
+ros2 topic info --verbose /perception/cam_4/tool/semantics --no-daemon
+ros2 topic info --verbose /perception/cam_4/tool/overlay/compressed --no-daemon
 ```
 
 View the overlay:
@@ -240,7 +240,7 @@ ros2 run rqt_image_view rqt_image_view
 Select:
 
 ```text
-/surgery/images/cam4/detection_overlay/compressed
+/perception/cam_4/tool/overlay/compressed
 ```
 
 If the viewer is not installed:

@@ -132,9 +132,9 @@ class TaskCoordinator(Node):
         # Where each detector publishes the pose the robot should go to.
         # Uniformly geometry_msgs/PoseStamped so this node needs no build
         # dependency on any detector's private message package.
-        self.declare_parameter('tool_pose_topic', '/surgery/perception/cam4/tool_target_pose')
-        self.declare_parameter('hand_pose_topic', '/surgery/perception/cam4/hand_target_pose')
-        self.declare_parameter('blood_pose_topic', '/surgery/perception/cam4/blood_target_pose')
+        self.declare_parameter('tool_pose_topic', '/perception/cam_4/tool/target_pose')
+        self.declare_parameter('hand_pose_topic', '/perception/cam_4/hand/target_pose')
+        self.declare_parameter('blood_pose_topic', '/perception/cam_4/blood/target_pose')
 
         # True: clean detectors all the way to UNCONFIGURED between turns so
         # their models leave VRAM. Costs a model reload (seconds) each turn.

@@ -6,6 +6,7 @@ external_assets/
 **/install/
 **/log/
 **/__pycache__/
+*.egg-info/
 *.pth
 *.h5
 *.avi

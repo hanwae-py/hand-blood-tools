@@ -5,7 +5,7 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/config/system.env"
 COORD="${ROOT}/components/coordinator_ws"
-GATE_TOPIC=/surgery/perception/cam4/tool_processing_enabled
+GATE_TOPIC=/perception/cam_4/tool/processing_enabled
 BLOOD_PIG1_TOPIC=/surgery/test/blood_pig1/color/image_raw/compressed
 BLOOD_PIG1_IMAGES_DIR="${BLOOD_PIG1_IMAGES_DIR:-${HOME}/blood/pig1/imgs}"
 

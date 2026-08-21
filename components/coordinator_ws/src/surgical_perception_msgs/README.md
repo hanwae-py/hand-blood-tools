@@ -13,8 +13,8 @@ ros2 interface show surgical_perception_msgs/msg/ToolObservation2DArray
 ```
 
 - `ToolPoseArray`: instance별 class와 metric pose, pose mode, quality, validity.
-  동일 type을 `/surgery/perception/cam4/tool_poses`와
-  `/surgery/perception/tray/tool_poses`에서 사용하되 배열마다 한 view만 담는다.
+  동일 type을 `/perception/cam_4/tool/poses`와
+  `/perception/tray/tool/poses`에서 사용하되 배열마다 한 view만 담는다.
 - 위치만 필요한 consumer는 `class_name`과 `pose.position`을 읽는다.
 - 전체 pose가 필요한 consumer는 `class_name`과 `pose` 전체를 읽는다.
 - `pose.position`은 mask centroid가 아니라 tool 위에서 선택한 3D 관측점 `P_obs`다.

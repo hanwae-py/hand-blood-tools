@@ -113,11 +113,11 @@ class BloodDetectionNode(LifecycleNode):
         self.declare_parameter("depth_to_color_rotation", [float("nan")] * 9)
         self.declare_parameter("depth_to_color_translation_m", [float("nan")] * 3)
         self.declare_parameter("calibration_version", "")
-        self.declare_parameter("mask_topic", "/surgery/perception/cam4/blood_mask")
-        self.declare_parameter("overlay_topic", "/surgery/images/cam4/blood_overlay/compressed")
-        self.declare_parameter("semantics_topic", "/surgery/perception/cam4/blood/semantics/json")
-        self.declare_parameter("health_topic", "/surgery/perception/blood/health")
-        self.declare_parameter("diagnostics_topic", "/surgery/perception/blood/diagnostics/json")
+        self.declare_parameter("mask_topic", "/perception/cam_4/blood/mask")
+        self.declare_parameter("overlay_topic", "/perception/cam_4/blood/overlay/compressed")
+        self.declare_parameter("semantics_topic", "/perception/cam_4/blood/semantics")
+        self.declare_parameter("health_topic", "/perception/cam_4/blood/health")
+        self.declare_parameter("diagnostics_topic", "/perception/cam_4/blood/diagnostics")
 
         self._active = False
         self._model = None

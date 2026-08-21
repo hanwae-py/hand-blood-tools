@@ -26,23 +26,23 @@ itself on startup, so single-node testing is unchanged.
 
 Published topics (ARPA-H interface contract naming, all overridable by
 parameter):
-  /surgery/perception/cam4/hand_keypoints (hand_keypoint_interfaces/HandKeypoints)
+  /perception/cam_4/hand/keypoints (hand_keypoint_interfaces/HandKeypoints)
     — this frame's detected hand(s), typed: per hand, hand_index,
     handedness, joints_3d (metres, camera optical frame), joints_2d
     (pixels), kp_valid_depth, palm_6d. Carries both the 2D and 3D result
     together (see hand_keypoint_interfaces/msg/HandKeypoints.msg) — no
     separate 2D->3D conversion node is needed downstream.
-  /surgery/images/cam4/hand_overlay/compressed (sensor_msgs/CompressedImage)
+  /perception/cam_4/hand/overlay/compressed (sensor_msgs/CompressedImage)
     — annotated debug visualization (skeleton + palm gizmo drawn on the
     input frame). CompressedImage, not raw Image, to match every other
     image topic in the contract. Disable with publish_overlay:=false.
-  /surgery/perception/cam4/hand_target_pose (geometry_msgs/PoseStamped)
+  /perception/cam_4/hand/target_pose (geometry_msgs/PoseStamped)
     — the palm 6D pose the robot should hand a tool to, ready for a
     downstream TF/robot node to consume without JSON parsing. When
     robot_position is set this is that single handoff hand; otherwise it
     is the first detected hand that has a valid palm_6d.
-  /surgery/perception/handkeypoint/health (std_msgs/String, JSON, 1 Hz)
-  /surgery/perception/handkeypoint/diagnostics/json (std_msgs/String, 1 Hz)
+  /perception/cam_4/hand/health (std_msgs/String, JSON, 1 Hz)
+  /perception/cam_4/hand/diagnostics (std_msgs/String, 1 Hz)
     — the health/diagnostics pair every perception node in the contract
     publishes.
 
@@ -174,16 +174,13 @@ class HandDetectionNode(LifecycleNode):
         self.declare_parameter('depth_to_color_translation_m', [float('nan')] * 3)
         self.declare_parameter('calibration_version', '')
 
-        # Output topic names follow the ARPA-H interface contract
-        # (/surgery/perception/..., /surgery/images/.../compressed) rather
-        # than the old hand/* names, so downstream consumers can subscribe
-        # from the contract table without a per-lab exception.
-        self.declare_parameter('keypoints_topic', '/surgery/perception/cam4/hand_keypoints')
-        self.declare_parameter('overlay_topic', '/surgery/images/cam4/hand_overlay/compressed')
-        self.declare_parameter('target_pose_topic', '/surgery/perception/cam4/hand_target_pose')
-        self.declare_parameter('health_topic', '/surgery/perception/handkeypoint/health')
+        # Output topic names follow /perception/<camera>/<task>/<detail>.
+        self.declare_parameter('keypoints_topic', '/perception/cam_4/hand/keypoints')
+        self.declare_parameter('overlay_topic', '/perception/cam_4/hand/overlay/compressed')
+        self.declare_parameter('target_pose_topic', '/perception/cam_4/hand/target_pose')
+        self.declare_parameter('health_topic', '/perception/cam_4/hand/health')
         self.declare_parameter('diagnostics_topic',
-                                '/surgery/perception/handkeypoint/diagnostics/json')
+                                '/perception/cam_4/hand/diagnostics')
 
         self.declare_parameter('depth_source', 'auto')  # auto | real | mono
         self.declare_parameter('depth_model', DEFAULT_DEPTH_MODEL)

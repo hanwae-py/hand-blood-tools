@@ -87,10 +87,10 @@ def generate_launch_description():
             parameters=[{'motion_duration_sec': 3.0}],
         ),
 
-        _stub('tool_detection_node', '/surgery/perception/cam4/tool_target_pose',
+        _stub('tool_detection_node', '/perception/cam_4/tool/target_pose',
               [0.10, 0.05, 0.40]),
-        _stub('hand_detection_node', '/surgery/perception/cam4/hand_target_pose',
+        _stub('hand_detection_node', '/perception/cam_4/hand/target_pose',
               [-0.08, 0.02, 0.55], condition=IfCondition(use_stub_hand)),
-        _stub('blood_detection_node', '/surgery/perception/cam4/blood_target_pose',
+        _stub('blood_detection_node', '/perception/cam_4/blood/target_pose',
               [0.02, 0.12, 0.45]),
     ])

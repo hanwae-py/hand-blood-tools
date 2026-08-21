@@ -392,7 +392,7 @@ depth source: REAL DEPTH
 `fake_camera_publisher` is Node 1 for this test: it publishes recorded
 RGB, depth, and calibration as camera topics. `hand_detection_node` is
 Node 2: it subscribes to those topics, runs MediaPipe/depth processing,
-and publishes `/surgery/perception/cam4/hand_keypoints`.
+and publishes `/perception/cam_4/hand/keypoints`.
 
 #### Terminal 2: inspect topics and measure FPS
 
@@ -440,22 +440,22 @@ Press `Ctrl+C` to stop the RGB measurement, then measure the complete
 Node 2 result rate by itself:
 
 ```bash
-ros2 topic hz /surgery/perception/cam4/hand_keypoints --window 50
+ros2 topic hz /perception/cam_4/hand/keypoints --window 50
 ```
 
 Or read the detector's internal rate without adding an image subscriber:
 
 ```bash
-ros2 topic echo /surgery/perception/handkeypoint/diagnostics/json --once
+ros2 topic echo /perception/cam_4/hand/diagnostics --once
 ```
 
 Look for `processed_hz_1s` in the JSON.
 
 Interpretation:
 
-- Source near 15 Hz and `/surgery/perception/cam4/hand_keypoints` near
+- Source near 15 Hz and `/perception/cam_4/hand/keypoints` near
   15 Hz: end-to-end real-time.
-- Source near 15 Hz but `/surgery/perception/cam4/hand_keypoints` below
+- Source near 15 Hz but `/perception/cam_4/hand/keypoints` below
   15 Hz: Node 2 or its ROS
   input/output path is the bottleneck.
 - Source below 15 Hz: fake-camera replay/publishing is the bottleneck.
@@ -463,7 +463,7 @@ Interpretation:
 Display one typed result message:
 
 ```bash
-ros2 topic echo /surgery/perception/cam4/hand_keypoints --once
+ros2 topic echo /perception/cam_4/hand/keypoints --once
 ```
 
 Stop the measurement with `Ctrl+C`, then return to Terminal 1 and press
@@ -514,8 +514,8 @@ are needed, the custom message type lives in the workspace overlay, not
 base ROS):
 
 ```bash
-ros2 topic hz /surgery/perception/cam4/hand_keypoints          # confirm it is publishing
-ros2 topic echo /surgery/perception/cam4/hand_keypoints --once # see one typed frame
+ros2 topic hz /perception/cam_4/hand/keypoints          # confirm it is publishing
+ros2 topic echo /perception/cam_4/hand/keypoints --once # see one typed frame
 ros2 interface show hand_keypoint_interfaces/msg/HandKeypoints   # full schema
 ```
 
@@ -716,12 +716,12 @@ For a clean test, launch with real depth explicitly, do not monitor the raw
 image at the same time, and measure only the current lightweight output:
 
 ```bash
-ros2 topic hz /surgery/perception/cam4/hand_keypoints --window 50
+ros2 topic hz /perception/cam_4/hand/keypoints --window 50
 ```
 
 The node also reports a non-invasive internal one-second processing rate as
 `processed_hz_1s` on
-`/surgery/perception/handkeypoint/diagnostics/json`.
+`/perception/cam_4/hand/diagnostics`.
 
 The corrected rerun confirmed D3D12/RTX 3060 and the MediaPipe GPU delegate.
 With a 15 Hz source, CameraInfo recovered to 15.00 Hz, while hand-keypoint
@@ -753,7 +753,7 @@ subscribed directly to the live ROS camera's frame-by-frame streams:
 | Live RGB | 848x480 `rgb8` |
 | Live depth | 848x480 `16UC1` |
 | Camera source rate | **~32 Hz** |
-| `/surgery/perception/cam4/hand_keypoints` | **~27.4-28.4 Hz** |
+| `/perception/cam_4/hand/keypoints` | **~27.4-28.4 Hz** |
 | Relative to a 15 FPS requirement | **~1.86x real-time** |
 
 The run confirmed the D3D12 RTX 3060 renderer, MediaPipe GPU delegate,

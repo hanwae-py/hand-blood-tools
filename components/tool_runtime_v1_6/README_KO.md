@@ -18,7 +18,7 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 - 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h). 받은 `.pth` 경로를 `config/system.env`의 `TOOL_CHECKPOINT`에 설정한다.
 - 기본 confidence threshold: 0.30
 - class-agnostic bounding-box NMS: 기본 활성화, IoU 0.80
-- pose-axis 디버그 오버레이: `/surgery/images/cam4/pose_overlay/compressed`
+- pose-axis 디버그 오버레이: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## 빌드
 

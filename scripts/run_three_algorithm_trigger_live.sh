@@ -4,7 +4,7 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/config/system.env"
 COORD="${ROOT}/components/coordinator_ws"
-GATE_TOPIC=/surgery/perception/cam4/tool_processing_enabled
+GATE_TOPIC=/perception/cam_4/tool/processing_enabled
 
 set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"

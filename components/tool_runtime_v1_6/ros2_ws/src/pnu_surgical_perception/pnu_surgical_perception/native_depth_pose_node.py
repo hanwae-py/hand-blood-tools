@@ -233,26 +233,26 @@ class NativeDepthPoseNode(Node):
             'depth_camera_info_topic', f'{prefix}/depth/camera_info'
         )
         self.declare_parameter(
-            'pose_topic', '/surgery/perception/cam4/tool_poses'
+            'pose_topic', '/perception/cam_4/tool/poses'
         )
         self.declare_parameter(
-            'observation_topic', '/surgery/perception/cam4/observations'
+            'observation_topic', '/perception/cam_4/tool/observations'
         )
         self.declare_parameter(
             'overlay_topic',
-            '/surgery/images/cam4/detection_overlay/compressed',
+            '/perception/cam_4/tool/overlay/compressed',
         )
         self.declare_parameter(
             'pose_overlay_topic',
-            '/surgery/images/cam4/pose_overlay/compressed',
+            '/perception/cam_4/tool/pose_overlay/compressed',
         )
         self.declare_parameter(
-            'diagnostics_topic', '/surgery/perception/rfdetr/diagnostics/json'
+            'diagnostics_topic', '/perception/cam_4/tool/diagnostics'
         )
         self.declare_parameter(
-            'health_topic', '/surgery/perception/rfdetr/health'
+            'health_topic', '/perception/cam_4/tool/health'
         )
-        self.declare_parameter('view', 'cam4')
+        self.declare_parameter('view', 'cam_4')
         self.declare_parameter('maximum_stamp_delta_ns', 1_000_000)
         self.declare_parameter('sync_queue_size', 8)
         self.declare_parameter('latest_frame_only', True)

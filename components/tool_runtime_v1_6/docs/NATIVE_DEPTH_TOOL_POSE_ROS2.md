@@ -41,11 +41,11 @@ mask + RGB-aligned metric depth + support plane
 출력 토픽은 다음과 같다.
 
 ```text
-/surgery/perception/cam4/tool_poses
-/surgery/perception/cam4/observations
-/surgery/images/cam4/detection_overlay/compressed
-/surgery/perception/rfdetr/diagnostics/json
-/surgery/perception/rfdetr/health
+/perception/cam_4/tool/poses
+/perception/cam_4/tool/observations
+/perception/cam_4/tool/overlay/compressed
+/perception/cam_4/tool/diagnostics
+/perception/cam_4/tool/health
 ```
 
 현재 알고리즘은 quaternion을 전달하지만 unconstrained full 6DoF가 아니다.

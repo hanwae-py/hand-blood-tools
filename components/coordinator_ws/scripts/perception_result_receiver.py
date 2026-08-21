@@ -16,10 +16,10 @@ class PerceptionResultReceiver(Node):
     def __init__(self) -> None:
         super().__init__("perception_result_receiver")
         self.declare_parameter(
-            "tool_topic", "/surgery/perception/cam4/observations"
+            "tool_topic", "/perception/cam_4/tool/observations"
         )
         self.declare_parameter(
-            "hand_topic", "/surgery/perception/cam4/hand_keypoints"
+            "hand_topic", "/perception/cam_4/hand/keypoints"
         )
         self.declare_parameter("timeout_sec", 300.0)
 
@@ -35,7 +35,7 @@ class PerceptionResultReceiver(Node):
         )
         self.create_subscription(
             ToolPoseArray,
-            "/surgery/perception/cam4/tool_poses",
+            "/perception/cam_4/tool/poses",
             self._on_tool_pose,
             10,
         )
