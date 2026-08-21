@@ -1,4 +1,4 @@
-native_depth_tool_pose:
+/**:
   ros__parameters:
     # Reference MCAP transport. Deployment topic names remain configurable.
     rgb_topic: "/synced/cam_4/color/image_raw/compressed"
