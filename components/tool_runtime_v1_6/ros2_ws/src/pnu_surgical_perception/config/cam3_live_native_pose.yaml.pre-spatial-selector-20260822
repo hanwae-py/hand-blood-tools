@@ -1,0 +1,75 @@
+/**:
+  ros__parameters:
+    # CAM3 only. Its depth-to-color transform must arrive on its own latched
+    # topic after measurement; no CAM4 transform is copied into this profile.
+    camera: "cam_3"
+    rgb_topic: "/synced/cam_3/color/image_raw/compressed"
+    color_camera_info_topic: "/synced/cam_3/color/camera_info"
+    depth_topic: "/synced/cam_3/depth/image_rect_raw/compressedDepth"
+    depth_camera_info_topic: "/synced/cam_3/depth/camera_info"
+    extrinsics_topic: "/synced/cam_3/extrinsics/depth_to_color"
+    require_depth: true
+    require_extrinsics_topic: true
+    maximum_stamp_delta_ns: 1000000
+    sync_queue_size: 8
+    latest_frame_only: true
+
+    pose_topic: "/perception/cam_3/tool/poses"
+    observation_topic: "/perception/cam_3/tool/observations"
+    overlay_topic: "/perception/cam_3/tool/overlay/compressed"
+    pose_overlay_topic: "/perception/cam_3/tool/pose_overlay/compressed"
+    diagnostics_topic: "/perception/cam_3/tool/diagnostics"
+    health_topic: "/perception/cam_3/tool/health"
+    view: "cam_3"
+
+    confidence_threshold: 0.3
+    enable_class_agnostic_nms: true
+    class_agnostic_nms_iou: 0.8
+    pose_axis_length_m: 0.05
+    optimize_for_inference: true
+    jit_compile: true
+    fp16: true
+    jpeg_quality: 90
+
+    # Approved against CAM3 serial 146222250366's factory Depth Units and the
+    # live /synced depth-to-colour Extrinsics relay (2026-08-22).
+    depth_scale_m_per_unit: 0.001
+    depth_scale_verified: true
+    minimum_depth_m: 0.05
+    maximum_depth_m: 10.0
+    depth_to_color_rotation_convention: "column_major"
+    minimum_depth_to_color_baseline_m: 0.02
+    maximum_depth_to_color_baseline_m: 0.12
+    expected_depth_to_color_translation_direction: [-1.0, 0.0, 0.0]
+    minimum_depth_to_color_direction_cosine: 0.95
+    depth_to_color_rotation_orthonormal_tolerance: 0.0001
+    depth_to_color_rotation_determinant_tolerance: 0.0001
+    expected_color_frame: "cam_3_color_optical_frame"
+    expected_depth_frame: "cam_3_depth_optical_frame"
+    calibration_version: "cam3_live_factory_depth_scale_and_workplane_20260822"
+
+    # CAM3 live work plane. The AprilGrid board top was fit from native depth
+    # registered into RGB with factory extrinsics, then shifted 10 mm away
+    # from the camera to compensate the measured board thickness.
+    support_plane_normal:
+      - -0.011784563353441073
+      - -0.2998239722928375
+      - -0.9539217524016907
+    support_plane_offset_m: 0.6635724681161439
+    support_plane_config_version: "cam3_live_aprilgrid_depth_workplane_20260822"
+    support_plane_inlier_ratio: 0.9921875
+    support_plane_residual_p95_m: 0.0035503683916628752
+
+    # Dynamic /tf uses the existing constrained quaternion: translation and
+    # yaw are observed; roll/pitch are completed from the support-plane normal.
+    # ToolPoseArray remains PLANAR_4DOF_WITH_NORMAL_PRIOR.
+    publish_tool_tf: true
+    tf_stale_after_sec: 2.0
+    tf_max_future_sec: 0.5
+    # Dynamic child frames are temporal 3-D tracks, never frame-local NMS IDs.
+    # A large jump is rejected until the old track expires rather than creating
+    # a false extra frame in /tf.
+    tf_track_max_displacement_m: 0.10
+    tf_track_ttl_sec: 5.0
+    tf_track_max_active_per_class: 8
+    tf_track_reset_stamp_jump_sec: 5.0

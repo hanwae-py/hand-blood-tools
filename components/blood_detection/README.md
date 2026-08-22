@@ -10,7 +10,8 @@ checkpoint with RF-DETR Seg-Small.
 - Output: per-frame binary mask, overlay image, `overlay.mp4`, `mask.mp4`, and `blood_results.jsonl` with
   boxes, confidence, centroid, and COCO RLE masks.
 
-ROS Blood uses `scripts/run_blood_cam4.sh` and `BLOOD_CHECKPOINT` from
+ROS Blood uses `scripts/run_blood_cam4.sh` (local `/perception/ingress/cam_4`
+after `scripts/run_perception_ingress.sh`) and `BLOOD_CHECKPOINT` from
 `config/system.env`. For this offline script, point `--checkpoint` at the same
 `.pth`.
 

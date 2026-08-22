@@ -1,17 +1,18 @@
 /**:
   ros__parameters:
-    # Reference MCAP transport. Deployment topic names remain configurable.
+    # CAM4 only: RGB + native depth are registered locally with the latched
+    # RealSense depth-to-color calibration topic. Do not use aligned depth.
     camera: "cam_4"
     rgb_topic: "/synced/cam_4/color/image_raw/compressed"
     color_camera_info_topic: "/synced/cam_4/color/camera_info"
     depth_topic: "/synced/cam_4/depth/image_rect_raw/compressedDepth"
     depth_camera_info_topic: "/synced/cam_4/depth/camera_info"
     extrinsics_topic: "/synced/cam_4/extrinsics/depth_to_color"
+    require_depth: true
     require_extrinsics_topic: true
     maximum_stamp_delta_ns: 1000000
     sync_queue_size: 8
     latest_frame_only: true
-    require_depth: true
 
     pose_topic: "/perception/cam_4/tool/poses"
     observation_topic: "/perception/cam_4/tool/observations"
@@ -30,18 +31,15 @@
     fp16: true
     jpeg_quality: 90
 
-    # 0.001 m/unit is plausible for the bag but absent from its metadata.
-    # Keep verified=false until the camera provider confirms the device value.
+    # Confirm this scale from the actual CAM4 depth sensor before promotion.
     depth_scale_m_per_unit: 0.001
     depth_scale_verified: false
     minimum_depth_m: 0.05
     maximum_depth_m: 10.0
 
-    # P_color = R_color_from_depth * P_depth + t_color_from_depth.
-    # Extracted from /synced/cam_4/extrinsics/depth_to_color in the reference
-    # bag. This reference is checked only; 3D runtime requires the latched
-    # topic and never silently falls back to this stored transform.
-    # The ROS message is explicitly column-major.
+    # The reference is source documentation only; it is never a runtime
+    # fallback. Values are the direct `Extrinsics.rotation` vector and are
+    # explicitly column-major as specified by librealsense.
     depth_to_color_rotation_convention: "column_major"
     depth_to_color_rotation:
       - 0.9999935626983643
@@ -65,15 +63,14 @@
     depth_to_color_rotation_determinant_tolerance: 0.0001
     expected_color_frame: "cam_4_color_optical_frame"
     expected_depth_frame: "cam_4_depth_optical_frame"
-    calibration_version: "reference_mcap_20260814_cam4_provisional"
+    calibration_version: "cam4_factory_extrinsics_live_topic_provisional"
 
-    # Estimated from blue, depth-valid pixels in the first reference-bag frame.
-    # Recalibrate this plane at the actual fixed camera/Mayo installation.
+    # Revalidate at the installed camera position before operational use.
     support_plane_normal:
       - 0.04967945869867935
       - 0.06010054902002815
       - -0.9969553026043332
     support_plane_offset_m: 0.7951867203215164
-    support_plane_config_version: "reference_mcap_first_frame_blue_plane_provisional"
+    support_plane_config_version: "cam4_reference_plane_provisional"
     support_plane_inlier_ratio: 0.7407333333333334
     support_plane_residual_p95_m: 0.00548064783090434

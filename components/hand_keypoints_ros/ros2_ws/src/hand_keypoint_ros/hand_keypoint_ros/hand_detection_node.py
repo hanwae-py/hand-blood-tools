@@ -90,6 +90,26 @@ _AUTO_DEPTH_DETECT_POLL_S = 0.2
 _PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 
 
+def image_reader_qos() -> QoSProfile:
+    """Latest frame only; matches local ingress image fan-out exactly."""
+    return QoSProfile(
+        depth=1,
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+        history=HistoryPolicy.KEEP_LAST,
+    )
+
+
+def camera_info_qos() -> QoSProfile:
+    """CameraInfo remains reliable and bounded separately from video frames."""
+    return QoSProfile(
+        depth=20,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+        history=HistoryPolicy.KEEP_LAST,
+    )
+
+
 def decode_compressed_depth(message: CompressedImage) -> np.ndarray:
     """Decode a ROS compressedDepth 16UC1 PNG without changing its header.
 
@@ -156,31 +176,34 @@ class HandDetectionNode(LifecycleNode):
         super().__init__('hand_detection_node')
 
         # ---- parameters -----------------------------------------------
+        self.declare_parameter('camera', 'cam_4')
+        camera = str(self.get_parameter('camera').value).strip() or 'cam_4'
+        synced = f'/synced/{camera}'
+        out = f'/perception/{camera}/hand'
         self.declare_parameter(
-            'color_topic', '/synced/cam_4/color/image_raw/compressed')
+            'color_topic', f'{synced}/color/image_raw/compressed')
         self.declare_parameter('color_transport', 'compressed')  # compressed | raw
         self.declare_parameter(
             'depth_topic',
-            '/synced/cam_4/depth/image_rect_raw/compressedDepth')
+            f'{synced}/depth/image_rect_raw/compressedDepth')
         self.declare_parameter(
             'depth_transport', 'compressed_depth')  # compressed_depth | raw
         self.declare_parameter('depth_alignment_validated', False)
         self.declare_parameter(
-            'camera_info_topic', '/synced/cam_4/color/camera_info')
+            'camera_info_topic', f'{synced}/color/camera_info')
         self.declare_parameter(
-            'depth_camera_info_topic', '/synced/cam_4/depth/camera_info')
+            'depth_camera_info_topic', f'{synced}/depth/camera_info')
         self.declare_parameter('depth_scale_m_per_unit', 0.001)
         self.declare_parameter('depth_to_color_rotation', [float('nan')] * 9)
         self.declare_parameter('depth_to_color_translation_m', [float('nan')] * 3)
         self.declare_parameter('calibration_version', '')
 
         # Output topic names follow /perception/<camera>/<task>/<detail>.
-        self.declare_parameter('keypoints_topic', '/perception/cam_4/hand/keypoints')
-        self.declare_parameter('overlay_topic', '/perception/cam_4/hand/overlay/compressed')
-        self.declare_parameter('target_pose_topic', '/perception/cam_4/hand/target_pose')
-        self.declare_parameter('health_topic', '/perception/cam_4/hand/health')
-        self.declare_parameter('diagnostics_topic',
-                                '/perception/cam_4/hand/diagnostics')
+        self.declare_parameter('keypoints_topic', f'{out}/keypoints')
+        self.declare_parameter('overlay_topic', f'{out}/overlay/compressed')
+        self.declare_parameter('target_pose_topic', f'{out}/target_pose')
+        self.declare_parameter('health_topic', f'{out}/health')
+        self.declare_parameter('diagnostics_topic', f'{out}/diagnostics')
 
         self.declare_parameter('depth_source', 'auto')  # auto | real | mono
         self.declare_parameter('depth_model', DEFAULT_DEPTH_MODEL)
@@ -386,24 +409,9 @@ class HandDetectionNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
         # ---- subscribers (time-synchronized) ---------------------------
-        rgb_qos = QoSProfile(
-            depth=20,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.VOLATILE,
-            history=HistoryPolicy.KEEP_LAST,
-        )
-        info_qos = QoSProfile(
-            depth=20,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.VOLATILE,
-            history=HistoryPolicy.KEEP_LAST,
-        )
-        depth_qos = QoSProfile(
-            depth=20,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.VOLATILE,
-            history=HistoryPolicy.KEEP_LAST,
-        )
+        rgb_qos = image_reader_qos()
+        info_qos = camera_info_qos()
+        depth_qos = image_reader_qos()
         color_type = CompressedImage if self.color_transport == 'compressed' else Image
         color_sub = message_filters.Subscriber(
             self, color_type, self.color_topic, qos_profile=rgb_qos)

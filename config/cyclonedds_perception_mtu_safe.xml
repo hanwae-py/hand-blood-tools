@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Perception-only Cyclone DDS profile for 1.7's 1500-byte Ethernet path.
+  Keep this file opt-in through scripts/perception_runtime_env.sh: it must not
+  silently alter unrelated ROS processes or robot-control traffic.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="enp4s0" priority="default" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <!-- UDP payload / fragment values stay comfortably below MTU 1500. -->
+      <MaxMessageSize>1200B</MaxMessageSize>
+      <FragmentSize>1100B</FragmentSize>
+    </General>
+    <Internal>
+      <!-- Requires the matching rmem_max/wmem_max sysctl caps below. -->
+      <SocketReceiveBufferSize min="64MB" max="64MB" />
+      <!-- Keep the LAN-safe final-overlay reader resilient to RGB-D bursts. -->
+      <DefragUnreliableMaxSamples>64</DefragUnreliableMaxSamples>
+      <DeliveryQueueMaxSamples>512</DeliveryQueueMaxSamples>
+    </Internal>
+  </Domain>
+</CycloneDDS>

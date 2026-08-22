@@ -89,16 +89,17 @@ bash scripts/build_all.sh
 
 ## Input modes
 
-CAM4 subscribe matches VIPLab `/synced/cam_4` publish 1:1. QoS is reliable / volatile / KEEP_LAST 20.
+VIPLab publishes `/synced/cam_4` 1:1. QoS is reliable / volatile / KEEP_LAST 20.
+`config/system.env` names those source topics. One ingress process subscribes
+to them and fans out locally. Tool, Hand, and Blood read
+`/perception/ingress/cam_4/...`, not `/synced` directly.
 
-| Role | VIPLab topic | ROS 2 type |
+| Role | VIPLab topic | Local worker topic |
 |---|---|---|
-| CAM4 RGB | `/synced/cam_4/color/image_raw/compressed` | `sensor_msgs/CompressedImage` |
-| CAM4 color CameraInfo | `/synced/cam_4/color/camera_info` | `sensor_msgs/CameraInfo` |
-| CAM4 depth | `/synced/cam_4/depth/image_rect_raw/compressedDepth` | `sensor_msgs/CompressedImage` |
-| CAM4 depth CameraInfo | `/synced/cam_4/depth/camera_info` | `sensor_msgs/CameraInfo` |
-
-Set those names in `config/system.env`. Tool, Hand, and Blood all subscribe to the same four topics.
+| CAM4 RGB | `/synced/cam_4/color/image_raw/compressed` | `/perception/ingress/cam_4/color/image_raw/compressed` |
+| CAM4 color CameraInfo | `/synced/cam_4/color/camera_info` | `/perception/ingress/cam_4/color/camera_info` |
+| CAM4 depth | `/synced/cam_4/depth/image_rect_raw/compressedDepth` | `/perception/ingress/cam_4/depth/image_rect_raw/compressedDepth` |
+| CAM4 depth CameraInfo | `/synced/cam_4/depth/camera_info` | `/perception/ingress/cam_4/depth/camera_info` |
 
 | Mode | What starts | Configuration needed |
 |---|---|---|
@@ -152,54 +153,41 @@ confirms the device scale.
 
 ## Main commands
 
-### Tool v1.6 only
+One command starts the whole stack: CAM3 and CAM4 ingress, CAM3 Tool, the
+concurrent CAM4 Tool, Hand, and Blood workers, and the final Debug overlay.
 
 ```bash
-bash scripts/run_tool_v16.sh
+bash scripts/run.sh
 ```
 
-### Hand only
+Ingress is the only VIPLab `/synced` subscriber, so `run.sh` exits without
+starting anything when an ingress process is already running.
+`config/systemd/user/` holds the persistent user units that run the same set;
+install them with `scripts/install_perception_user_units.sh`.
 
 ```bash
-bash scripts/run_hand_cam4.sh
+bash scripts/stop_local_perception.sh
 ```
 
-### Blood only
+That stops the local processes only. Units started by systemd have
+`Restart=always`, so stop the target instead:
+`systemctl --user stop taskplanner-perception-stack.target`.
+
+### One worker at a time
+
+For debugging a single algorithm. Ingress must already be running, because each
+worker reads only `/perception/ingress/<cam>` topics.
 
 ```bash
-bash scripts/run_blood_cam4.sh
+bash scripts/run_perception_ingress.sh both   # or cam_3, or cam_4
+bash scripts/run_tool_v16.sh cam_4            # or cam_3
+bash scripts/run_hand_cam4.sh cam_4
+bash scripts/run_blood_cam4.sh cam_4
+bash scripts/run_final_overlay.sh
 ```
 
-### Three-algorithm trigger test with MCAP
-
-```bash
-bash scripts/run_three_algorithm_trigger_mcap.sh
-```
-
-### Three-algorithm trigger test: MCAP Tool/Hand + pig1 Blood (Tool v1.6)
-
-This test keeps Tool and Hand on the MCAP RGB-D stream, but replays local
-Blood test images only to the Blood node. It requires the external folder
-`$HOME/blood/pig1/imgs`; the pig images, labels, and checkpoint are not part
-of this repository. The v1.6 checkpoint must also be placed as described in
-`components/tool_runtime_v1_6/README_EN.md`.
-
-```bash
-bash scripts/run_three_algorithm_trigger_mcap_pig1_blood_v16.sh
-```
-
-When `DETECT_BLOOD` is sent, inspect the normal ROS output on
-`/perception/cam_4/blood/overlay/compressed`. `DETECT_TOOL` and
-`DETECT_HAND` continue to use the MCAP input.
-
-### Three-algorithm trigger test with a live camera publisher
-
-```bash
-bash scripts/run_three_algorithm_trigger_live.sh
-```
-
-In another sourced terminal, send `DETECT_TOOL`, `DETECT_HAND`,
-`DETECT_BLOOD`, or `STOP` on `/surgery/perception/mode_command`.
+`scripts/list_topics.sh` lists topics that currently have a publisher, and
+`scripts/view_overlay.sh cam_4 tool hand` opens the JPEG overlays.
 
 ## Important limits
 

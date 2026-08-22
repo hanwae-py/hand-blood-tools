@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Perception-only profile for 1.7 local RGB-D fan-out.  The process still
+  discovers VIPLab peers on enp4s0 / ROS domain 0, but packets addressed to
+  192.168.1.7 are routed locally through lo (MTU 65536).  Larger local RTPS
+  fragments prevent four high-rate RGB-D fan-out paths from multiplying into
+  hundreds of 1100-byte packets per camera frame.
+
+  Do not use this profile for the final Debug overlay publisher: that JPEG is
+  consumed over the 1500-byte Taskplanner LAN path and remains MTU-safe.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="enp4s0" priority="default" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <!-- Both values remain below loopback UDP/MTU limits (~65 KiB). -->
+      <MaxMessageSize>60000B</MaxMessageSize>
+      <FragmentSize>59000B</FragmentSize>
+    </General>
+    <Internal>
+      <SocketReceiveBufferSize min="64MB" max="64MB" />
+      <!--
+        BEST_EFFORT RGB-D bursts can otherwise exhaust Cyclone's default four
+        simultaneous unreliable defragmentation slots.  These finite limits
+        absorb the two-camera local fan-out burst without retaining ROS image
+        queues in the workers themselves.
+      -->
+      <DefragUnreliableMaxSamples>64</DefragUnreliableMaxSamples>
+      <DeliveryQueueMaxSamples>512</DeliveryQueueMaxSamples>
+    </Internal>
+  </Domain>
+</CycloneDDS>

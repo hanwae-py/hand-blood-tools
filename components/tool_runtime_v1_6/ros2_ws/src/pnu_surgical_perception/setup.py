@@ -29,6 +29,9 @@ setup(
     entry_points={
         "console_scripts": [
             "native_depth_tool_pose = pnu_surgical_perception.native_depth_pose_node:main",
+            "debug_overlay_compositor = pnu_surgical_perception.debug_overlay_compositor:main",
+            "perception_ingress = pnu_surgical_perception.perception_ingress:main",
+            "final_overlay_compositor = pnu_surgical_perception.final_overlay_compositor:main",
         ],
     },
 )

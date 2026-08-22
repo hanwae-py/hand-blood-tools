@@ -2,7 +2,8 @@
 
 ## 입력 메시지
 
-CAM4 입력은 VIPLab `/synced/cam_4` publish와 1대1이다. Tool/Hand/Blood가 같은 네 토픽을 구독한다. QoS는 reliable / volatile / KEEP_LAST 20.
+CAM4 입력은 VIPLab `/synced/cam_4` publish와 1대1이다. ingress가 그 토픽만
+구독하고, Tool/Hand/Blood는 `/perception/ingress/cam_4`를 본다. QoS는 reliable / volatile / KEEP_LAST 20.
 
 | 역할 | VIPLab topic | ROS type |
 |---|---|---|

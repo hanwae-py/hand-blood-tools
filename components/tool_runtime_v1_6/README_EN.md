@@ -31,6 +31,7 @@ The repository-root `bash scripts/build_all.sh` also builds this workspace.
 
 ## Run
 
-From the repository root:
+From the repository root, after CAM4 ingress is running
+(`bash scripts/run_perception_ingress.sh`):
 
     bash scripts/run_tool_v16.sh

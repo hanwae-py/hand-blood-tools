@@ -30,6 +30,7 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 
 ## 실행
 
-저장소 최상위에서 실행:
+저장소 최상위에서, CAM4 ingress
+(`bash scripts/run_perception_ingress.sh`) 실행 후:
 
     bash scripts/run_tool_v16.sh

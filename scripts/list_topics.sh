@@ -26,7 +26,15 @@ topic_is_published() {
   printf '%s\n' "${published}" | grep -qF -- " * ${1} ["
 }
 
-printf '\nExpected CAM4 inputs (from config/system.env):\n'
+printf '\nSynced cameras (from published /synced/<cam>/... topics):\n'
+synced_cams="$(printf '%s\n' "${published}" | sed -n 's|^ \* /synced/\([^/]*\)/.*|\1|p' | sort -u)"
+if [[ -z "${synced_cams}" ]]; then
+  printf '  (none)\n'
+else
+  printf '%s\n' "${synced_cams}" | sed 's/^/  /'
+fi
+
+printf '\nExpected default inputs (from config/system.env):\n'
 check_expected() {
   local label="$1" topic="$2"
   if topic_is_published "${topic}"; then

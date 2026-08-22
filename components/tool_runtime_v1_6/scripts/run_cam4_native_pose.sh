@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 ROS_DISTRO_NAME="${ROS_DISTRO:-jazzy}"
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
 ROS_SETUP="/opt/ros/${ROS_DISTRO_NAME}/setup.bash"
 WORKSPACE_SETUP="${BUNDLE_ROOT}/ros2_ws/install/setup.bash"
 ALGORITHM_SOURCE="${BUNDLE_ROOT}/algorithm/src"
@@ -25,6 +27,7 @@ set -u
 export PYTHONPATH="${ALGORITHM_SOURCE}${PYTHONPATH:+:${PYTHONPATH}}"
 
 exec ros2 run pnu_surgical_perception native_depth_tool_pose --ros-args \
+  -r __node:=native_depth_tool_pose_cam_4 \
   --params-file "${PARAMETERS}" \
   -p "algorithm_python_path:=${ALGORITHM_SOURCE}" \
   -p "checkpoint:=${CHECKPOINT}" \

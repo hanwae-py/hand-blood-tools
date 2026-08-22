@@ -1,0 +1,207 @@
+import json
+import time
+from types import SimpleNamespace
+
+import numpy as np
+import rclpy
+from rclpy.context import Context
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
+from sensor_msgs.msg import Image
+
+from pnu_surgical_perception.final_overlay_compositor import (
+    CAMERAS,
+    LAYER_NAMES,
+    FinalOverlayCompositor,
+    LatestBase,
+    LatestLayer,
+    decode_binary_mask,
+    image_reader_qos,
+    quaternion_matrix_xyzw,
+    status_qos,
+)
+from pnu_surgical_perception.final_overlay_contract import Freshness
+
+
+def test_binary_blood_mask_accepts_only_exact_mono8_shape():
+    message = Image()
+    message.height = 2
+    message.width = 3
+    message.step = 3
+    message.encoding = 'mono8'
+    message.data = bytes((0, 255, 0, 4, 0, 12))
+    np.testing.assert_array_equal(
+        decode_binary_mask(message),
+        np.asarray([[False, True, False], [True, False, True]]),
+    )
+    message.encoding = 'rgb8'
+    assert decode_binary_mask(message) is None
+
+
+def test_pose_quaternion_identity_is_orthonormal():
+    rotation = quaternion_matrix_xyzw(
+        SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0)
+    )
+    np.testing.assert_allclose(rotation, np.eye(3))
+
+
+def test_final_status_is_retained_reliable_and_final_images_are_latest_best_effort():
+    status = status_qos()
+    image = image_reader_qos()
+    assert status.depth == 1
+    assert status.reliability == ReliabilityPolicy.RELIABLE
+    assert status.durability == DurabilityPolicy.TRANSIENT_LOCAL
+    assert image.depth == 1
+    assert image.reliability == ReliabilityPolicy.BEST_EFFORT
+
+
+class _Published:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, message):
+        self.messages.append(message)
+
+
+def test_node_context_attribute_cannot_shadow_camera_context_helper():
+    """Construct a real Node: rclpy reserves ``Node._context`` for Context."""
+    context = Context()
+    node = None
+    rclpy.init(context=context)
+    try:
+        node = FinalOverlayCompositor(context=context)
+        assert node._context is context
+        assert callable(node._camera_context)
+        assert len(node._perception_subscriptions) == 10
+        # With no base images this returns early, but it must first create both
+        # per-camera contexts without attempting to call ``Node._context``.
+        node._publish_if_current()
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown(context=context)
+
+
+def _message(sec):
+    return SimpleNamespace(header=SimpleNamespace(
+        stamp=SimpleNamespace(sec=sec, nanosec=7), frame_id='cam_color_optical_frame'))
+
+
+def test_status_json_has_exact_compact_public_contract():
+    node = FinalOverlayCompositor.__new__(FinalOverlayCompositor)
+    now = time.monotonic()
+    source = _message(31)
+    node._base = {
+        'cam_3': LatestBase(
+            message=source, image=np.zeros((2, 2, 3), dtype=np.uint8),
+            source_stamp_ns=31_000_000_007, freshness=Freshness(now), received=4),
+        # A known but stale CAM4 base remains representable without a null
+        # stamp/age; that is different from startup, where no status is sent.
+        'cam_4': LatestBase(
+            message=_message(29), image=np.zeros((2, 2, 3), dtype=np.uint8),
+            source_stamp_ns=29_000_000_007, freshness=Freshness(now - 2.0), received=1),
+    }
+    node._layers = {
+        camera: {name: LatestLayer() for name in LAYER_NAMES}
+        for camera in CAMERAS
+    }
+    node._layers['cam_3']['tool'] = LatestLayer(
+        message=_message(31), source_stamp_ns=31_000_000_007,
+        freshness=Freshness(now), count=2)
+    node._max_base_age_sec = 1.0
+    node._max_layer_age_sec = 1.0
+    node._max_source_delta_ns = 1_000_000
+    node._enable_hand = True
+    node._enable_blood = True
+    node._output_hz = 9.5
+    node._last_output_at = now
+    node._last_output_source_header = source.header
+    node._last_output_bytes = 123
+    node._last_output_width = 960
+    node._last_output_height = 540
+    node._status_publisher = _Published()
+
+    node._publish_status()
+    payload = json.loads(node._status_publisher.messages[-1].data)
+    assert payload['schema'] == 'pnu.perception.final_overlay.v1'
+    assert set(payload) == {'schema', 'published_at', 'output', 'cameras'}
+    assert payload['output'] == {
+        'source_stamp': {'sec': 31, 'nanosec': 7},
+        'hz': 9.5, 'bytes': 123, 'width': 960, 'height': 540,
+    }
+    assert payload['cameras']['cam3']['base']['received'] == 4
+    assert payload['cameras']['cam3']['layers']['tool']['state'] == 'live'
+    assert payload['cameras']['cam3']['layers']['hand']['state'] == 'disabled'
+    assert payload['cameras']['cam3']['layers']['blood']['state'] == 'disabled'
+    assert payload['cameras']['cam3']['layers']['hand']['source_stamp'] is None
+    assert payload['cameras']['cam3']['layers']['hand']['age_sec'] is None
+    assert payload['cameras']['cam3']['layers']['blood']['source_stamp'] is None
+    assert payload['cameras']['cam3']['layers']['blood']['age_sec'] is None
+    assert payload['cameras']['cam4']['state'] == 'stale'
+    for camera in ('cam3', 'cam4'):
+        assert payload['cameras'][camera]['base']['source_stamp'] is not None
+        assert payload['cameras'][camera]['base']['age_sec'] is not None
+
+
+def test_status_is_suppressed_until_all_base_metadata_is_truthful():
+    node = FinalOverlayCompositor.__new__(FinalOverlayCompositor)
+    now = time.monotonic()
+    node._base = {
+        'cam_3': LatestBase(
+            message=_message(31), image=np.zeros((2, 2, 3), dtype=np.uint8),
+            source_stamp_ns=31_000_000_007, freshness=Freshness(now), received=1),
+        'cam_4': LatestBase(),
+    }
+    node._layers = {
+        camera: {name: LatestLayer() for name in LAYER_NAMES}
+        for camera in CAMERAS
+    }
+    node._max_base_age_sec = 1.0
+    node._max_layer_age_sec = 1.0
+    node._max_source_delta_ns = 1_000_000
+    node._enable_hand = True
+    node._enable_blood = True
+    node._last_output_at = now
+    node._last_output_source_header = _message(31).header
+    node._output_hz = 1.0
+    node._last_output_bytes = 1
+    node._last_output_width = 1
+    node._last_output_height = 1
+    node._status_publisher = _Published()
+
+    node._publish_status()
+    assert node._status_publisher.messages == []
+
+
+def test_status_output_stamp_is_the_last_encoded_image_not_a_newer_base_callback():
+    node = FinalOverlayCompositor.__new__(FinalOverlayCompositor)
+    now = time.monotonic()
+    node._base = {
+        'cam_3': LatestBase(
+            message=_message(42), image=np.zeros((2, 2, 3), dtype=np.uint8),
+            source_stamp_ns=42_000_000_007, freshness=Freshness(now), received=3),
+        'cam_4': LatestBase(
+            message=_message(41), image=np.zeros((2, 2, 3), dtype=np.uint8),
+            source_stamp_ns=41_000_000_007, freshness=Freshness(now), received=2),
+    }
+    node._layers = {
+        camera: {name: LatestLayer() for name in LAYER_NAMES}
+        for camera in CAMERAS
+    }
+    node._max_base_age_sec = 1.0
+    node._max_layer_age_sec = 1.0
+    node._max_source_delta_ns = 1_000_000
+    node._enable_hand = True
+    node._enable_blood = True
+    node._last_output_at = now
+    # Simulate a final JPEG encoded from an earlier CAM4 base.  The newer
+    # CAM3 callback above must not silently overwrite this status identity.
+    node._last_output_source_header = _message(40).header
+    node._output_hz = 8.0
+    node._last_output_bytes = 10
+    node._last_output_width = 20
+    node._last_output_height = 10
+    node._status_publisher = _Published()
+
+    node._publish_status()
+    payload = json.loads(node._status_publisher.messages[-1].data)
+    assert payload['output']['source_stamp'] == {'sec': 40, 'nanosec': 7}

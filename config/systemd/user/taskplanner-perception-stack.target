@@ -1,0 +1,8 @@
+[Unit]
+Description=Taskplanner persistent perception-only ingress stack
+Documentation=file://%h/projects/hand-blood-tools/scripts/install_perception_user_units.sh
+Wants=taskplanner-perception-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-final-overlay.service
+After=taskplanner-perception-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-final-overlay.service
+
+[Install]
+WantedBy=default.target

@@ -34,8 +34,18 @@ def reliable_qos(depth: int = 1) -> QoSProfile:
     )
 
 
-def synced_stream_qos() -> QoSProfile:
-    """Match VIPLab /synced CAM4 publish QoS: reliable, volatile, KEEP_LAST 20."""
+def image_reader_qos() -> QoSProfile:
+    """Latest frame only; compatible with local ingress BEST_EFFORT fan-out."""
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def camera_info_qos() -> QoSProfile:
+    """Reliable CameraInfo is distinct from the lossy image transport."""
     return QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=20,
@@ -92,15 +102,21 @@ def sample_centroid_depth_m(
 class BloodDetectionNode(LifecycleNode):
     def __init__(self) -> None:
         super().__init__("blood_detection_node")
-        self.declare_parameter("color_topic", "/synced/cam_4/color/image_raw/compressed")
+        self.declare_parameter("camera", "cam_4")
+        camera = str(self.get_parameter("camera").value).strip() or "cam_4"
+        synced = f"/synced/{camera}"
+        out = f"/perception/{camera}/blood"
         self.declare_parameter(
-            "depth_topic", "/synced/cam_4/depth/image_rect_raw/compressedDepth"
+            "color_topic", f"{synced}/color/image_raw/compressed"
         )
         self.declare_parameter(
-            "color_camera_info_topic", "/synced/cam_4/color/camera_info"
+            "depth_topic", f"{synced}/depth/image_rect_raw/compressedDepth"
         )
         self.declare_parameter(
-            "depth_camera_info_topic", "/synced/cam_4/depth/camera_info"
+            "color_camera_info_topic", f"{synced}/color/camera_info"
+        )
+        self.declare_parameter(
+            "depth_camera_info_topic", f"{synced}/depth/camera_info"
         )
         self.declare_parameter(
             "checkpoint", str(Path.home() / "models" / "blood_detection.pth")
@@ -113,11 +129,15 @@ class BloodDetectionNode(LifecycleNode):
         self.declare_parameter("depth_to_color_rotation", [float("nan")] * 9)
         self.declare_parameter("depth_to_color_translation_m", [float("nan")] * 3)
         self.declare_parameter("calibration_version", "")
-        self.declare_parameter("mask_topic", "/perception/cam_4/blood/mask")
-        self.declare_parameter("overlay_topic", "/perception/cam_4/blood/overlay/compressed")
-        self.declare_parameter("semantics_topic", "/perception/cam_4/blood/semantics")
-        self.declare_parameter("health_topic", "/perception/cam_4/blood/health")
-        self.declare_parameter("diagnostics_topic", "/perception/cam_4/blood/diagnostics")
+        self.declare_parameter("mask_topic", f"{out}/mask")
+        self.declare_parameter("overlay_topic", f"{out}/overlay/compressed")
+        self.declare_parameter("semantics_topic", f"{out}/semantics")
+        self.declare_parameter("health_topic", f"{out}/health")
+        self.declare_parameter("diagnostics_topic", f"{out}/diagnostics")
+        # Preserve the existing coordinator-controlled default.  The new
+        # local-ingress concurrent runner opts in explicitly so Tool, Hand,
+        # and Blood can all remain active for the unified Debug overlay.
+        self.declare_parameter("autostart", False)
 
         self._active = False
         self._model = None
@@ -137,30 +157,31 @@ class BloodDetectionNode(LifecycleNode):
         self._semantics_pub = None
         self._health_pub = None
         self._diagnostics_pub = None
-        camera_qos = synced_stream_qos()
+        image_qos = image_reader_qos()
+        info_qos = camera_info_qos()
         self.create_subscription(
             CompressedImage,
             str(self.get_parameter("color_topic").value),
             self._on_color,
-            camera_qos,
+            image_qos,
         )
         self.create_subscription(
             CompressedImage,
             str(self.get_parameter("depth_topic").value),
             self._on_depth,
-            camera_qos,
+            image_qos,
         )
         self.create_subscription(
             CameraInfo,
             str(self.get_parameter("color_camera_info_topic").value),
             self._on_color_info,
-            camera_qos,
+            info_qos,
         )
         self.create_subscription(
             CameraInfo,
             str(self.get_parameter("depth_camera_info_topic").value),
             self._on_depth_info,
-            camera_qos,
+            info_qos,
         )
         self.create_timer(1.0, self._publish_status)
         self.get_logger().info("blood_detection_node created (unconfigured)")
@@ -504,14 +525,22 @@ class BloodDetectionNode(LifecycleNode):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = BloodDetectionNode()
+    node = None
     try:
+        node = BloodDetectionNode()
+        if bool(node.get_parameter("autostart").value):
+            node.get_logger().info(
+                "autostart:=true -- self-configuring and activating"
+            )
+            node.trigger_configure()
+            node.trigger_activate()
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         try:
-            node.destroy_node()
+            if node is not None:
+                node.destroy_node()
         except KeyboardInterrupt:
             pass
         rclpy.try_shutdown()

@@ -29,16 +29,12 @@ from pnu_surgical_perception.pose_message_mapping import (
 )
 from pnu_surgical_perception.tool_pose_tf import (
     CONSTRAINED_SE3_PROVENANCE,
-    selector_horizontal_u_px,
     source_age_seconds,
     source_stamp_nanoseconds,
-    spatial_tool_child_frames,
-    ToolSpatialTfSelector,
+    ToolTfTracker,
 )
 
 import rclpy
-from rclpy.context import Context
-from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -96,18 +92,8 @@ def reliable_qos(depth: int = 5) -> QoSProfile:
     )
 
 
-def image_reader_qos() -> QoSProfile:
-    """Latest-frame image reader, compatible with ingress BEST_EFFORT output."""
-    return QoSProfile(
-        history=HistoryPolicy.KEEP_LAST,
-        depth=1,
-        reliability=ReliabilityPolicy.BEST_EFFORT,
-        durability=DurabilityPolicy.VOLATILE,
-    )
-
-
-def camera_info_qos() -> QoSProfile:
-    """Reliable CameraInfo calibration reader kept separate from image QoS."""
+def synced_stream_qos() -> QoSProfile:
+    """Match VIPLab /synced CAM4 publish QoS: reliable, volatile, KEEP_LAST 20."""
     return QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=20,
@@ -172,9 +158,9 @@ class PendingPoseFrame:
 class NativeDepthPoseNode(Node):
     """Latest-frame ROS adapter for native depth registration and tool pose."""
 
-    def __init__(self, *, context: Context | None = None) -> None:
+    def __init__(self) -> None:
         """Initialize configured subscriptions, publishers, and worker."""
-        super().__init__('native_depth_tool_pose', context=context)
+        super().__init__('native_depth_tool_pose')
         self._declare_parameters()
         self._read_parameters()
 
@@ -242,39 +228,35 @@ class NativeDepthPoseNode(Node):
         self._tf_last_error = ''
         self._last_tf_log_monotonic = 0.0
 
-        image_qos = image_reader_qos()
-        info_qos = camera_info_qos()
-        # ``Node`` owns ``_subscriptions`` for lifecycle bookkeeping.  Keep
-        # references that this adapter owns separately so ``destroy_node`` can
-        # remove each ROS subscription exactly once.
-        self._perception_subscriptions = [
+        camera_qos = synced_stream_qos()
+        self._subscriptions = [
             self.create_subscription(
                 CameraInfo,
                 self._color_info_topic,
                 self._receive_color_info,
-                info_qos,
+                camera_qos,
             ),
             self.create_subscription(
                 CameraInfo,
                 self._depth_info_topic,
                 self._receive_depth_info,
-                info_qos,
+                camera_qos,
             ),
             self.create_subscription(
                 CompressedImage,
                 self._rgb_topic,
                 self._receive_rgb,
-                image_qos,
+                camera_qos,
             ),
             self.create_subscription(
                 CompressedImage,
                 self._depth_topic,
                 self._receive_depth,
-                image_qos,
+                camera_qos,
             ),
         ]
         if self._extrinsics_topic:
-            self._perception_subscriptions.append(
+            self._subscriptions.append(
                 self.create_subscription(
                     Extrinsics,
                     self._extrinsics_topic,
@@ -283,7 +265,7 @@ class NativeDepthPoseNode(Node):
                 )
             )
         if self._processing_gate_topic:
-            self._perception_subscriptions.append(
+            self._subscriptions.append(
                 self.create_subscription(
                     Bool,
                     self._processing_gate_topic,
@@ -302,7 +284,6 @@ class NativeDepthPoseNode(Node):
             f'native-depth pose node started: rgb={self._rgb_topic}, '
             f'depth={self._depth_topic}, require_depth={self._require_depth}, '
             f'extrinsics={self._extrinsics_topic}, '
-            f'workspace_zone={self._workspace_zone}, '
             f'max_delta_ns={self._maximum_stamp_delta_ns}, '
             f'publish_tool_tf={self._publish_tool_tf}'
         )
@@ -311,11 +292,6 @@ class NativeDepthPoseNode(Node):
         """Declare transport, model, and geometry parameters."""
         self.declare_parameter('camera', 'cam_4')
         camera = str(self.get_parameter('camera').value).strip() or 'cam_4'
-        default_workspace_zone = {
-            'cam_3': 'mayo',
-            'cam_4': 'tray',
-        }.get(camera, camera)
-        self.declare_parameter('workspace_zone', default_workspace_zone)
         prefix = f'/synced/{camera}'
         out = f'/perception/{camera}/tool'
         self.declare_parameter(
@@ -436,9 +412,6 @@ class NativeDepthPoseNode(Node):
         self._diagnostics_topic = str(value('diagnostics_topic'))
         self._health_topic = str(value('health_topic'))
         self._view = str(value('view'))
-        self._workspace_zone = str(value('workspace_zone')).strip()
-        if not self._workspace_zone:
-            raise ValueError('workspace_zone must not be empty')
         self._maximum_stamp_delta_ns = int(value('maximum_stamp_delta_ns'))
         self._sync_queue_size = int(value('sync_queue_size'))
         self._latest_frame_only = bool(value('latest_frame_only'))
@@ -609,8 +582,10 @@ class NativeDepthPoseNode(Node):
         self._tf_track_reset_stamp_jump_sec = float(
             value('tf_track_reset_stamp_jump_sec')
         )
-        self._tf_tracker = ToolSpatialTfSelector(
-            max_tools_per_class=self._tf_track_max_active_per_class,
+        self._tf_tracker = ToolTfTracker(
+            max_displacement_m=self._tf_track_max_displacement_m,
+            ttl_sec=self._tf_track_ttl_sec,
+            max_tracks_per_class=self._tf_track_max_active_per_class,
             reset_stamp_jump_sec=self._tf_track_reset_stamp_jump_sec,
         )
 
@@ -708,7 +683,7 @@ class NativeDepthPoseNode(Node):
                     self._tf_last_output_source_stamp_ns = None
                     self._tf_last_parent_frame = ''
                     self._tf_last_child_frames = ()
-                    self._tf_last_skip_reason = 'SELECTOR_RESET_GATE_INACTIVE'
+                    self._tf_last_skip_reason = 'TRACKER_RESET_GATE_INACTIVE'
             self._condition.notify_all()
         if changed:
             self.get_logger().info(
@@ -1004,13 +979,6 @@ class NativeDepthPoseNode(Node):
                 aligned_depth_m=aligned_depth_m,
             )
             self._observation_publisher.publish(observation_array)
-            selector_labels = spatial_tool_child_frames(
-                self._workspace_zone, list(observation_array.instances)
-            )
-            selector_u_by_instance_id = {
-                int(item.frame_local_instance_id): selector_horizontal_u_px(item)
-                for item in observation_array.instances
-            }
 
             valid_count = 0
             if pose_result is not None:
@@ -1024,10 +992,7 @@ class NativeDepthPoseNode(Node):
                     degrade_for_additional_flags=True,
                 )
                 self._pose_publisher.publish(pose_array)
-                tf_report = self._publish_constrained_tool_tf(
-                    pose_array,
-                    selector_u_by_instance_id=selector_u_by_instance_id,
-                )
+                tf_report = self._publish_constrained_tool_tf(pose_array)
                 self._publish_pose_overlay(
                     rgb, pose_result, registrar.color_camera, pending.rgb.header
                 )
@@ -1050,11 +1015,7 @@ class NativeDepthPoseNode(Node):
                 }
 
             self._publish_detection_overlay(
-                rgb,
-                detections,
-                observation_array,
-                selector_labels,
-                pending.rgb.header,
+                rgb, detections, observation_array, pending.rgb.header
             )
 
             total_ms = (time.perf_counter() - started) * 1000.0
@@ -1083,11 +1044,6 @@ class NativeDepthPoseNode(Node):
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
                 'pose_mode': 'PLANAR_4DOF_WITH_NORMAL_PRIOR',
                 'tf_topic': '/tf',
-                'tf_selector_semantics': (
-                    'workspace_zone_class_current_left_to_right'
-                ),
-                'tf_workspace_zone': self._workspace_zone,
-                'tf_selector_order_axis': 'camera_image_u_ascending',
                 'tf_orientation_provenance': CONSTRAINED_SE3_PROVENANCE,
                 'tf_published_count': tf_report['published_count'],
                 'tf_skipped_count': tf_report['skipped_count'],
@@ -1132,10 +1088,7 @@ class NativeDepthPoseNode(Node):
             )
 
     def _publish_constrained_tool_tf(
-        self,
-        pose_array: ToolPoseArray,
-        *,
-        selector_u_by_instance_id: dict[int, float],
+        self, pose_array: ToolPoseArray
     ) -> dict[str, Any]:
         """Emit current valid constrained tool transforms on dynamic ``/tf``.
 
@@ -1178,10 +1131,7 @@ class NativeDepthPoseNode(Node):
 
         with self._condition:
             decisions = self._tf_tracker.assign(
-                pose_array.header,
-                list(pose_array.tools),
-                self._workspace_zone,
-                horizontal_u_by_instance_id=selector_u_by_instance_id,
+                pose_array.header, list(pose_array.tools), self._view
             )
             report['active_track_count'] = self._tf_tracker.active_track_count
             report['track_created_total'] = self._tf_tracker.created_total
@@ -1256,16 +1206,12 @@ class NativeDepthPoseNode(Node):
         rgb: np.ndarray,
         detections: Any,
         observation_array: ToolObservation2DArray,
-        selector_labels: list[str],
         header: Any,
     ) -> None:
-        """Publish masks with current workspace/class/spatial selectors."""
+        """Publish mask overlay with longitudinal-axis midpoints."""
         output = rgb.copy()
-        for item, observation, selector_label in zip(
-            detections.instances,
-            observation_array.instances,
-            selector_labels,
-            strict=False,
+        for item, observation in zip(
+            detections.instances, observation_array.instances, strict=False
         ):
             color = tool_overlay_color_bgr(item.class_name)
             layer = output.copy()
@@ -1275,7 +1221,7 @@ class NativeDepthPoseNode(Node):
                 int(round(value)) for value in item.bbox_xyxy_px
             )
             cv2.rectangle(output, (x0, y0), (x1, y1), color, 2)
-            label = f'{selector_label} {item.class_confidence:.2f}'
+            label = f'{item.class_name} {item.class_confidence:.2f}'
             cv2.putText(
                 output,
                 label,
@@ -1452,11 +1398,6 @@ class NativeDepthPoseNode(Node):
                 'full_6d_available': False,
                 'tf_topic': '/tf',
                 'tf_enabled': self._publish_tool_tf,
-                'tf_selector_semantics': (
-                    'workspace_zone_class_current_left_to_right'
-                ),
-                'tf_workspace_zone': self._workspace_zone,
-                'tf_selector_order_axis': 'camera_image_u_ascending',
                 'tf_orientation_provenance': CONSTRAINED_SE3_PROVENANCE,
                 'tf_input_fresh': tf_input_fresh,
                 'tf_output_active': tf_output_active,
@@ -1474,7 +1415,6 @@ class NativeDepthPoseNode(Node):
                     self._tf_track_max_displacement_m
                 ),
                 'tf_track_ttl_sec': self._tf_track_ttl_sec,
-                'tf_track_geometry_gate_applied': False,
                 'tf_track_max_active_per_class': (
                     self._tf_track_max_active_per_class
                 ),
@@ -1511,7 +1451,7 @@ def main(args=None) -> None:
     node = NativeDepthPoseNode()
     try:
         rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
+    except KeyboardInterrupt:
         pass
     finally:
         node.stop()
