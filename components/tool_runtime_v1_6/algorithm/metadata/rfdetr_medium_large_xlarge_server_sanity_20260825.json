@@ -1,0 +1,58 @@
+{
+  "schema": "pnu.cam4.rfdetrseg.medium_large_xlarge_server_sanity.v1",
+  "created_date": "2026-08-25",
+  "input": {
+    "path": "test_data/cam4_validation_sample.jpg",
+    "sha256": "b2d0ce551635d8d3eef26feae8e4cd0a2f02245612769ba792500b2ea576bf52"
+  },
+  "settings": {
+    "threshold": 0.5,
+    "optimize": false,
+    "device": "NVIDIA RTX A6000",
+    "latency_is_benchmark_eligible": false
+  },
+  "medium": {
+    "loaded_variant": "RFDETRSegMedium",
+    "instances": 9,
+    "all_masks_nonempty": true,
+    "class_counts": {
+      "Scalpel": 1,
+      "Allis Forceps": 2,
+      "Mosquito": 1,
+      "Bipolar Forceps": 1,
+      "Army-Navy Retractor": 2,
+      "Thyroid Retractor": 2
+    },
+    "overlay": "test_outputs/medium_overlay_threshold_0.5.jpg"
+  },
+  "large": {
+    "loaded_variant": "RFDETRSegLarge",
+    "instances": 9,
+    "all_masks_nonempty": true,
+    "class_counts": {
+      "Scalpel": 1,
+      "Allis Forceps": 2,
+      "Mosquito": 1,
+      "Bipolar Forceps": 1,
+      "Army-Navy Retractor": 2,
+      "Thyroid Retractor": 2
+    },
+    "overlay": "test_outputs/large_overlay_threshold_0.5.jpg"
+  },
+  "xlarge": {
+    "loaded_variant": "RFDETRSegXLarge",
+    "instances": 9,
+    "all_masks_nonempty": true,
+    "class_counts": {
+      "Scalpel": 1,
+      "Allis Forceps": 2,
+      "Mosquito": 1,
+      "Bipolar Forceps": 1,
+      "Army-Navy Retractor": 2,
+      "Thyroid Retractor": 2
+    },
+    "overlay": "test_outputs/xlarge_overlay_threshold_0.5.jpg"
+  },
+  "input_color_order": "RGB",
+  "note": "All three explicit variant loaders succeeded and all nine emitted masks per model were nonempty. This is a loader/contract sanity check, not an accuracy benchmark."
+}

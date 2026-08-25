@@ -7,6 +7,7 @@ from typing import Literal
 import numpy as np
 
 from .depth_registration import DepthRegistrationResult, DepthToColorRegistrar
+from .detection_postprocessing import DetectionPostprocessor
 from .planar_pose import PlanarPoseEstimator
 from .rfdetr_inference import SurgicalToolDetector
 from .types import CameraCalibration, DetectionBatch, SupportPlane, ToolFrameResult
@@ -17,9 +18,11 @@ class SurgicalToolAlgorithm:
         self,
         detector: SurgicalToolDetector,
         pose_estimator: PlanarPoseEstimator | None = None,
+        postprocessor: DetectionPostprocessor | None = None,
     ) -> None:
         self.detector = detector
         self.pose_estimator = pose_estimator or PlanarPoseEstimator()
+        self.postprocessor = postprocessor
 
     def detect(
         self,
@@ -27,7 +30,12 @@ class SurgicalToolAlgorithm:
         color_order: Literal["RGB", "BGR"],
         confidence_threshold: float | None = None,
     ) -> DetectionBatch:
-        return self.detector.predict(image, color_order, confidence_threshold)
+        detections = self.detector.predict(
+            image, color_order, confidence_threshold
+        )
+        if self.postprocessor is not None:
+            detections = self.postprocessor.process(detections)
+        return detections
 
     def detect_and_estimate(
         self,

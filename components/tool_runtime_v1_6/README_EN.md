@@ -15,10 +15,18 @@ helpers used by Hand and Blood.
 
 ## v1.6 detector
 
-- Checkpoint: `cam4_rfdetr_seg_small_regular_resume_e13_best.pth`
-- Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h). Set the local `.pth` path as `TOOL_CHECKPOINT` in `config/system.env`.
+- Checkpoint: selectable Small `cam4_rfdetr_seg_small_regular_resume_best.pth`,
+  Medium `medium_best.pth`, Large `large_best.pth`, or XLarge `xlarge_best.pth`
+- Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
+  Set `TOOL_MODEL_SIZE` and the matching checkpoint path in `config/system.env`.
 - Default confidence threshold: 0.30
-- Class-agnostic bounding-box NMS: enabled, IoU 0.80
+- Small: legacy BGR input and class-agnostic bbox NMS IoU 0.80
+- Medium/Large/XLarge: RGB input and no additional NMS
+- Mask-overlap workspace ROI filtering for the CAM4 Mayo stand
+- Class-independent mask/bbox association and confidence-weighted recent
+  class smoothing (three-frame switch confirmation)
+- CAM3 is the August tray camera; its ROI remains disabled until CAM3 August
+  images are delivered and calibrated
 - Pose-axis debug overlay: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## Build
@@ -34,4 +42,4 @@ The repository-root `bash scripts/build_all.sh` also builds this workspace.
 From the repository root, after CAM4 ingress is running
 (`bash scripts/run_perception_ingress.sh`):
 
-    bash scripts/run_tool_v16.sh
+    TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh

@@ -16,10 +16,10 @@
 ## KAIST에 먼저 확인할 것
 
 - [ ] NUC OS/CPU/RAM/GPU/VRAM/driver/CUDA/Python
-- [ ] 목표 해상도, CAM4/tray별 FPS와 최대 latency
+- [ ] 목표 해상도, CAM4 Mayo/CAM3 tray별 FPS와 최대 latency
 - [ ] 입력 array가 RGB인지 BGR인지
 - [ ] RGB-aligned depth의 dtype, meter 단위, invalid 표현
-- [ ] CAM4와 tray 각각의 공식 K/D, frame name, support plane
+- [ ] CAM4 Mayo와 CAM3 tray 각각의 공식 ROI, K/D, frame name, support plane
 - [ ] canonical class ID 1..8을 그대로 받을지 mapping이 필요한지
 - [ ] `P_obs`를 그대로 사용할지 CAD/TCP/grasp offset이 별도로 필요한지
 - [ ] `DEGRADED/INVALID`, C2 symmetry를 기존 알고리즘이 처리하는 방법
@@ -31,8 +31,7 @@
 - [ ] NUC clean install 및 checksum 검증
 - [ ] NUC detection/pose acceptance와 p50/p95/FPS 기록
 - [ ] 실제 CAM4 synchronized input 정확도 검증
-- [ ] 실제 tray 데이터 수집·검증
+- [ ] CAM3 8월 tray 영상 수령 및 ROI 보정·검증
 - [ ] 수신자/담당자/버전/전달일 기록
 
 ROS 통신은 현장 세팅 이후 별도 통합 전달본에서 다룬다.
-

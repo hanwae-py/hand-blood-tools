@@ -4,7 +4,10 @@ KAIST 로봇 내부 NUC PC의 기존 알고리즘 일부를 교체하기 위한 
 
 ## 포함 범위
 
-- RF-DETRSegSmall 기반 수술도구 8종 instance class, confidence, bbox, mask
+- 선택 가능한 RF-DETRSegSmall/Medium/Large/XLarge 기반 수술도구 8종 instance class,
+  confidence, bbox, mask
+- 카메라별 Mayo/tray polygon ROI와 mask-overlap 기반 instance 필터
+- class-independent spatial association과 최근 class evidence smoothing
 - RGB에 정합된 metric depth와 카메라 정보를 이용한 관측 기준점 `P_obs`
 - native `16UC1 compressedDepth`, depth/color CameraInfo와 depth→color extrinsic을 이용한
   RGB-aligned metric depth 생성
@@ -17,7 +20,7 @@ KAIST 로봇 내부 NUC PC의 기존 알고리즘 일부를 교체하기 위한 
 - ROS node, topic, message, DDS/QoS
 - Hand Pose와 Blood Detection
 - ROS subscription/publishing과 RGB-depth pair queue 관리
-- temporal tracking과 frame 간 영속 instance ID
+- frame 간 영속 instance ID(내부 temporal association ID는 외부로 발행하지 않음)
 - 자유공간의 roll/pitch/yaw를 모두 독립 추정하는 unconstrained full-6D pose
 - 실제 tray 데이터로 검증된 모델 성능
 
@@ -44,7 +47,8 @@ center of mass, TCP 또는 grasp point가 아니다.
 
 Aligned mode:
 
-- `uint8 HxWx3` RGB 또는 BGR 영상(호출 시 색상 순서를 명시; v1 checkpoint 내부 계약은 BGR)
+- `uint8 HxWx3` RGB 또는 BGR 영상(호출 시 색상 순서를 명시)
+- checkpoint 내부 계약은 Small BGR, Medium/Large/XLarge RGB이며 adapter가 모델별로 변환
 - RGB pixel에 이미 정합된 `float32 HxW` depth, 단위 meter
 - color camera intrinsic `K`, distortion `D`, 정확한 camera frame
 - 같은 camera frame의 support-plane normal과 offset
@@ -60,7 +64,9 @@ Native-depth mode:
 ROS `compressedDepth` 복원과 timestamp tolerance 검사는 제공 utility로 수행할 수 있지만,
 subscription, queue와 one-to-one pairing 정책은 transport adapter가 소유한다.
 
-실제 CAM4와 tray는 각각 자기 calibration, support-plane 설정, frame name을 사용해야 한다.
+CAM4는 Mayo stand camera이고 CAM3는 8월 tray camera다. 각각 자기 ROI, calibration,
+support-plane 설정과 frame name을 사용해야 한다. CAM3 8월 영상은 아직 미수령이므로 tray ROI는
+보정 전까지 비활성화한다.
 동일 checkpoint를 쓰더라도 이 geometry를 공유하면 안 된다.
 
 ## 권장 읽기 순서
@@ -71,5 +77,5 @@ subscription, queue와 one-to-one pairing 정책은 transport adapter가 소유�
 4. `docs/LIMITATIONS.md`
 5. `environment/install_nuc.md`
 
-본 폴더는 외부 전송 전 검토용 release candidate다. 실제 NUC 사양, CAM4/tray 공식 calibration,
+본 폴더는 외부 전송 전 검토용 release candidate다. 실제 NUC 사양, CAM4 Mayo/CAM3 tray 공식 calibration,
 데이터 반출 승인 및 제3자 라이선스 검토가 완료되면 final release로 승격한다.

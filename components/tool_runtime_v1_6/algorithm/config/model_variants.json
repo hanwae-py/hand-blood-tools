@@ -1,0 +1,43 @@
+{
+  "schema": "pnu.surgical_tool.rfdetr_model_variants.v1",
+  "default_model_size": "small",
+  "models": {
+    "small": {
+      "architecture": "RFDETRSegSmall",
+      "checkpoint_filename": "cam4_rfdetr_seg_small_regular_resume_best.pth",
+      "checkpoint_sha256": "253617aa5337fec219d694ca50537e4867fb8c403ce60f3a6945bbe15fecf430",
+      "checkpoint_input_color_order": "BGR",
+      "enable_class_agnostic_nms": true,
+      "class_agnostic_nms_iou": 0.8,
+      "native_resolution": 384,
+      "recommended_threshold": 0.3
+    },
+    "medium": {
+      "architecture": "RFDETRSegMedium",
+      "checkpoint_filename": "medium_best.pth",
+      "checkpoint_sha256": "384ff11a41f3586cef910c9919f39c454b89d1ee4e337e4e50a519c633755e2b",
+      "checkpoint_input_color_order": "RGB",
+      "enable_class_agnostic_nms": false,
+      "native_resolution": 432,
+      "recommended_threshold": 0.3
+    },
+    "large": {
+      "architecture": "RFDETRSegLarge",
+      "checkpoint_filename": "large_best.pth",
+      "checkpoint_sha256": "d739c2970c32f07f581a5f90f39b0d21fec416158f9284f953b739b90b0279fb",
+      "checkpoint_input_color_order": "RGB",
+      "enable_class_agnostic_nms": false,
+      "native_resolution": 504,
+      "recommended_threshold": 0.3
+    },
+    "xlarge": {
+      "architecture": "RFDETRSegXLarge",
+      "checkpoint_filename": "xlarge_best.pth",
+      "checkpoint_sha256": "504d6fcb3f01f4f7fa678147a518f97f9f81a9f84962f382df6041ddcdbbc577",
+      "checkpoint_input_color_order": "RGB",
+      "enable_class_agnostic_nms": false,
+      "native_resolution": 624,
+      "recommended_threshold": 0.3
+    }
+  }
+}

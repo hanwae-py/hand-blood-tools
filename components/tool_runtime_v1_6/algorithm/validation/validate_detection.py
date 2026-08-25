@@ -27,7 +27,7 @@ def main() -> None:
     supplied = bgr if args.color_order == "BGR" else cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     detector = SurgicalToolDetector(
         DetectorConfig(
-            ROOT / "model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth",
+            ROOT / "model/cam4_rfdetr_seg_small_regular_resume_best.pth",
             ROOT / "model/ontology.json",
             optimize=not args.no_optimize,
         )

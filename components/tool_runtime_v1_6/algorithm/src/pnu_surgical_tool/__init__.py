@@ -14,6 +14,12 @@ from .depth_registration import (
     RigidTransform,
     validate_rgb_depth_timestamps,
 )
+from .detection_postprocessing import (
+    DetectionPostprocessor,
+    DetectionPostprocessorConfig,
+    TemporalClassConfig,
+    WorkspaceRoiConfig,
+)
 from .planar_pose import (
     PlanarPoseEstimator,
     longitudinal_origin_uv,
@@ -35,6 +41,8 @@ __all__ = [
     "draw_pose_axes_bgr",
     "DetectionBatch",
     "DetectionInstance",
+    "DetectionPostprocessor",
+    "DetectionPostprocessorConfig",
     "DetectorConfig",
     "decode_compressed_depth_16uc1",
     "DepthRegistrationResult",
@@ -53,7 +61,9 @@ __all__ = [
     "SurgicalToolDetector",
     "ToolFrameResult",
     "ToolInstanceResult",
+    "TemporalClassConfig",
     "validate_rgb_depth_timestamps",
+    "WorkspaceRoiConfig",
 ]
 
 __version__ = "1.6.0rc1-compatible"

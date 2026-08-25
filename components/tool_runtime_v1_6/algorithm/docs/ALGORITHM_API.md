@@ -6,12 +6,13 @@
 detections = detector.predict(
     image=image,                  # uint8 HxWx3
     color_order="RGB",           # 또는 "BGR", 생략 불가
-    confidence_threshold=0.5,
+    confidence_threshold=0.3,
 )
 ```
 
-현재 v1 checkpoint의 검증된 내부 색상 순서는 BGR이다. `color_order`는 호출 배열의 의미이며,
-adapter가 checkpoint 계약에 맞게 변환한다. 이 값을 생략하거나 추정하지 않는다.
+Small checkpoint의 검증된 내부 색상 순서는 BGR이고 Medium/Large/XLarge는 RGB이다.
+`DetectorConfig.model_size`가 로더와 기본 색상 계약을 함께 선택한다. `color_order`는 호출 배열의
+의미이며 adapter가 checkpoint 계약에 맞게 정확히 한 번 변환한다. 이 값을 생략하거나 추정하지 않는다.
 
 `DetectionBatch.instances`의 각 원소에는 다음 값이 있다.
 
@@ -24,6 +25,47 @@ adapter가 checkpoint 계약에 맞게 변환한다. 이 값을 생략하거나 
 
 도구가 없는 정상 frame은 빈 `instances`를 반환한다. 입력/모델 오류를 빈 결과로 위장하지 않고
 exception을 발생시킨다.
+
+## Workspace/temporal postprocessing
+
+```python
+from pnu_surgical_tool import (
+    DetectionPostprocessor,
+    DetectionPostprocessorConfig,
+    TemporalClassConfig,
+    WorkspaceRoiConfig,
+)
+
+postprocessor = DetectionPostprocessor(
+    DetectionPostprocessorConfig(
+        workspace_roi=WorkspaceRoiConfig(
+            enabled=True,
+            # x0,y0,x1,y1,... normalized to source width/height
+            polygon_norm_xy=(0.402, 0.215, 0.698, 0.197,
+                             0.705, 0.651, 0.409, 0.663),
+            minimum_mask_overlap=0.5,
+            require_mask_centroid_inside=True,
+        ),
+        temporal_class=TemporalClassConfig(
+            enabled=True,
+            history_size=7,
+            minimum_switch_frames=3,
+            switch_score_margin=0.2,
+        ),
+    )
+)
+algorithm = SurgicalToolAlgorithm(detector, postprocessor=postprocessor)
+```
+
+ROI는 accepted instance의 mask를 자르지 않는다. 전체 mask 면적 중 ROI 내부 비율과 mask centroid로
+instance 전체를 유지하거나 제거한다. 이는 inference 후 필터이므로 RF-DETR GPU 연산량을 줄이지 않는다.
+
+Temporal association은 현재 class를 cost에 사용하지 않고 mask IoU, bbox IoU와 normalized centroid
+distance로 같은 공간 instance를 연결한다. 최근 class confidence 합이 기존 stable class보다 margin 이상
+높고 최소 frame 수를 만족할 때만 class를 전환한다. `last_diagnostics`에서 ROI reject, raw class transition,
+override와 stable class switch 수를 확인할 수 있다.
+
+내부 association ID는 외부 계약으로 내보내지 않는다. `frame_local_instance_id` 의미는 그대로 유지된다.
 
 ## Pose
 
@@ -120,7 +162,8 @@ space 방향이어야 한다.
 
 이 package는 transport timestamp를 생성하지 않는다. 호출자가 원본 입력 frame의 timestamp/sequence를
 `frame_key`로 넘겨 결과와 유지해야 한다. detection과 pose는 같은 `DetectionBatch` instance 순서를
-공유한다. frame 간 physical identity가 필요하면 별도의 tracker가 필요하다.
+공유한다. 제공 temporal association은 class smoothing 전용이며, frame 간 영속 physical identity가
+필요하면 별도의 tracker와 공개 track-ID 계약이 필요하다.
 
 ## JSON
 

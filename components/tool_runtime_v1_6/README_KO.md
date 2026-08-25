@@ -14,10 +14,17 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 
 ## v1.6 검출기
 
-- 체크포인트: `cam4_rfdetr_seg_small_regular_resume_e13_best.pth`
-- 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h). 받은 `.pth` 경로를 `config/system.env`의 `TOOL_CHECKPOINT`에 설정한다.
+- 체크포인트: Small `cam4_rfdetr_seg_small_regular_resume_best.pth`,
+  Medium `medium_best.pth`, Large `large_best.pth`, XLarge `xlarge_best.pth` 중 선택
+- 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
+  받은 `.pth` 경로와 `TOOL_MODEL_SIZE`를 `config/system.env`에 설정한다.
 - 기본 confidence threshold: 0.30
-- class-agnostic bounding-box NMS: 기본 활성화, IoU 0.80
+- Small: 기존 BGR 입력과 class-agnostic bbox NMS IoU 0.80 유지
+- Medium/Large/XLarge: RGB 입력, 별도 NMS 없음
+- CAM4 Mayo polygon 기반 mask-overlap ROI 필터
+- class와 무관한 mask/bbox association 및 최근 7-frame confidence-weighted
+  class smoothing(3-frame 전환 확인)
+- CAM3는 8월 tray camera이나 영상 미수령 상태이므로 ROI 비활성화
 - pose-axis 디버그 오버레이: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## 빌드
@@ -33,4 +40,4 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 저장소 최상위에서, CAM4 ingress
 (`bash scripts/run_perception_ingress.sh`) 실행 후:
 
-    bash scripts/run_tool_v16.sh
+    TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh

@@ -229,6 +229,7 @@ class NativeDepthPoseNode(Node):
         self._registrar = None
         self._registrar_key: tuple[Any, ...] | None = None
         self._algorithm = None
+        self._detection_postprocessor = None
         self._support_plane = None
         self._algorithm_symbols: dict[str, Any] = {}
         self._tf_broadcast_total = 0
@@ -312,8 +313,8 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('camera', 'cam_4')
         camera = str(self.get_parameter('camera').value).strip() or 'cam_4'
         default_workspace_zone = {
-            'cam_3': 'mayo',
-            'cam_4': 'tray',
+            'cam_3': 'tray',
+            'cam_4': 'mayo',
         }.get(camera, camera)
         self.declare_parameter('workspace_zone', default_workspace_zone)
         prefix = f'/synced/{camera}'
@@ -356,9 +357,34 @@ class NativeDepthPoseNode(Node):
         )
         self.declare_parameter('checkpoint', DEFAULT_CHECKPOINT)
         self.declare_parameter('ontology', DEFAULT_ONTOLOGY)
+        self.declare_parameter('model_size', 'small')
+        self.declare_parameter('checkpoint_color_order', 'BGR')
+        self.declare_parameter('model_version', '')
         self.declare_parameter('confidence_threshold', 0.3)
         self.declare_parameter('enable_class_agnostic_nms', True)
         self.declare_parameter('class_agnostic_nms_iou', 0.8)
+        self.declare_parameter('workspace_roi_enabled', False)
+        self.declare_parameter(
+            'workspace_roi_polygon_norm_xy',
+            [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+        )
+        self.declare_parameter('workspace_roi_minimum_mask_overlap', 0.5)
+        self.declare_parameter(
+            'workspace_roi_require_mask_centroid_inside', True
+        )
+        self.declare_parameter('temporal_class_smoothing_enabled', False)
+        self.declare_parameter('temporal_class_history_size', 7)
+        self.declare_parameter('temporal_class_minimum_switch_frames', 3)
+        self.declare_parameter('temporal_class_switch_score_margin', 0.2)
+        self.declare_parameter('temporal_association_minimum_mask_iou', 0.10)
+        self.declare_parameter('temporal_association_minimum_bbox_iou', 0.20)
+        self.declare_parameter(
+            'temporal_association_maximum_centroid_distance_norm', 0.06
+        )
+        self.declare_parameter(
+            'temporal_association_maximum_mask_area_ratio', 3.0
+        )
+        self.declare_parameter('temporal_track_max_missed_frames', 3)
         self.declare_parameter('pose_axis_length_m', 0.05)
         self.declare_parameter('optimize_for_inference', True)
         self.declare_parameter('jit_compile', True)
@@ -463,12 +489,62 @@ class NativeDepthPoseNode(Node):
             )
         self._checkpoint = Path(checkpoint).expanduser()
         self._ontology = Path(ontology).expanduser()
+        self._model_size = str(value('model_size')).strip().lower()
+        if self._model_size not in ('small', 'medium', 'large', 'xlarge'):
+            raise ValueError(
+                'model_size must be one of small, medium, large, xlarge'
+            )
+        self._checkpoint_color_order = str(
+            value('checkpoint_color_order')
+        ).strip().upper()
+        if self._checkpoint_color_order not in ('RGB', 'BGR'):
+            raise ValueError(
+                'checkpoint_color_order must be RGB or BGR'
+            )
+        self._model_version = str(value('model_version')).strip() or None
         self._confidence_threshold = float(value('confidence_threshold'))
         self._enable_class_agnostic_nms = bool(
             value('enable_class_agnostic_nms')
         )
         self._class_agnostic_nms_iou = float(
             value('class_agnostic_nms_iou')
+        )
+        self._workspace_roi_enabled = bool(value('workspace_roi_enabled'))
+        self._workspace_roi_polygon_norm_xy = tuple(
+            float(item) for item in value('workspace_roi_polygon_norm_xy')
+        )
+        self._workspace_roi_minimum_mask_overlap = float(
+            value('workspace_roi_minimum_mask_overlap')
+        )
+        self._workspace_roi_require_mask_centroid_inside = bool(
+            value('workspace_roi_require_mask_centroid_inside')
+        )
+        self._temporal_class_smoothing_enabled = bool(
+            value('temporal_class_smoothing_enabled')
+        )
+        self._temporal_class_history_size = int(
+            value('temporal_class_history_size')
+        )
+        self._temporal_class_minimum_switch_frames = int(
+            value('temporal_class_minimum_switch_frames')
+        )
+        self._temporal_class_switch_score_margin = float(
+            value('temporal_class_switch_score_margin')
+        )
+        self._temporal_association_minimum_mask_iou = float(
+            value('temporal_association_minimum_mask_iou')
+        )
+        self._temporal_association_minimum_bbox_iou = float(
+            value('temporal_association_minimum_bbox_iou')
+        )
+        self._temporal_association_maximum_centroid_distance_norm = float(
+            value('temporal_association_maximum_centroid_distance_norm')
+        )
+        self._temporal_association_maximum_mask_area_ratio = float(
+            value('temporal_association_maximum_mask_area_ratio')
+        )
+        self._temporal_track_max_missed_frames = int(
+            value('temporal_track_max_missed_frames')
         )
         self._pose_axis_length_m = float(value('pose_axis_length_m'))
         if not 0.0 <= self._class_agnostic_nms_iou <= 1.0:
@@ -800,12 +876,16 @@ class NativeDepthPoseNode(Node):
             CameraCalibration,
             decode_compressed_depth_16uc1,
             DepthToColorRegistrar,
+            DetectionPostprocessor,
+            DetectionPostprocessorConfig,
             DetectorConfig,
             PlanarPoseEstimator,
             RigidTransform,
             SupportPlane,
             SurgicalToolAlgorithm,
             SurgicalToolDetector,
+            TemporalClassConfig,
+            WorkspaceRoiConfig,
             draw_pose_axes_bgr,
         )
 
@@ -813,18 +893,59 @@ class NativeDepthPoseNode(Node):
             DetectorConfig(
                 checkpoint_path=self._checkpoint,
                 ontology_path=self._ontology,
+                model_size=self._model_size,
                 confidence_threshold=self._confidence_threshold,
                 enable_class_agnostic_nms=self._enable_class_agnostic_nms,
                 class_agnostic_nms_iou=self._class_agnostic_nms_iou,
                 optimize=self._optimize,
                 jit_compile=self._jit_compile,
                 fp16=self._fp16,
-                checkpoint_color_order='BGR',
+                model_version=self._model_version,
+                checkpoint_color_order=self._checkpoint_color_order,
             )
         )
         detector.load()
+        self._detection_postprocessor = DetectionPostprocessor(
+            DetectionPostprocessorConfig(
+                workspace_roi=WorkspaceRoiConfig(
+                    enabled=self._workspace_roi_enabled,
+                    polygon_norm_xy=self._workspace_roi_polygon_norm_xy,
+                    minimum_mask_overlap=(
+                        self._workspace_roi_minimum_mask_overlap
+                    ),
+                    require_mask_centroid_inside=(
+                        self._workspace_roi_require_mask_centroid_inside
+                    ),
+                ),
+                temporal_class=TemporalClassConfig(
+                    enabled=self._temporal_class_smoothing_enabled,
+                    history_size=self._temporal_class_history_size,
+                    minimum_switch_frames=(
+                        self._temporal_class_minimum_switch_frames
+                    ),
+                    switch_score_margin=(
+                        self._temporal_class_switch_score_margin
+                    ),
+                    minimum_mask_iou=(
+                        self._temporal_association_minimum_mask_iou
+                    ),
+                    minimum_bbox_iou=(
+                        self._temporal_association_minimum_bbox_iou
+                    ),
+                    maximum_centroid_distance_norm=(
+                        self._temporal_association_maximum_centroid_distance_norm
+                    ),
+                    maximum_mask_area_ratio=(
+                        self._temporal_association_maximum_mask_area_ratio
+                    ),
+                    max_missed_frames=self._temporal_track_max_missed_frames,
+                ),
+            )
+        )
         self._algorithm = SurgicalToolAlgorithm(
-            detector, PlanarPoseEstimator()
+            detector,
+            PlanarPoseEstimator(),
+            postprocessor=self._detection_postprocessor,
         )
         self._support_plane = SupportPlane(
             normal=self._plane_normal,
@@ -1081,6 +1202,14 @@ class NativeDepthPoseNode(Node):
                 'confidence_threshold': self._confidence_threshold,
                 'enable_class_agnostic_nms': self._enable_class_agnostic_nms,
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
+                'workspace_roi_enabled': self._workspace_roi_enabled,
+                'workspace_roi_name': self._workspace_zone,
+                'temporal_class_smoothing_enabled': (
+                    self._temporal_class_smoothing_enabled
+                ),
+                'detection_postprocessing': dict(
+                    self._detection_postprocessor.last_diagnostics
+                ),
                 'pose_mode': 'PLANAR_4DOF_WITH_NORMAL_PRIOR',
                 'tf_topic': '/tf',
                 'tf_selector_semantics': (
@@ -1261,6 +1390,30 @@ class NativeDepthPoseNode(Node):
     ) -> None:
         """Publish masks with current workspace/class/spatial selectors."""
         output = rgb.copy()
+        if self._detection_postprocessor is not None:
+            polygon = self._detection_postprocessor.roi_polygon_pixels(
+                output.shape[1], output.shape[0]
+            )
+            if polygon is not None:
+                cv2.polylines(
+                    output,
+                    [polygon],
+                    isClosed=True,
+                    color=(30, 230, 30),
+                    thickness=2,
+                    lineType=cv2.LINE_AA,
+                )
+                anchor = tuple(int(value) for value in polygon[0])
+                cv2.putText(
+                    output,
+                    f'ROI:{self._workspace_zone}',
+                    (anchor[0], max(18, anchor[1] - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.52,
+                    (30, 230, 30),
+                    2,
+                    cv2.LINE_AA,
+                )
         for item, observation, selector_label in zip(
             detections.instances,
             observation_array.instances,

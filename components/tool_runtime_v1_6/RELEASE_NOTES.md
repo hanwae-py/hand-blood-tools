@@ -1,11 +1,37 @@
 # Release notes — v1.6.0-rc1-compatible (2026-08-20)
 
-- Detector checkpoint: `cam4_rfdetr_seg_small_regular_resume_e13_best.pth`
+- Detector checkpoint: `cam4_rfdetr_seg_small_regular_resume_best.pth`
 - Default confidence threshold 0.30 (was 0.50)
 - Class-agnostic bounding-box NMS enabled by default (IoU 0.80)
 - Pose-axis debug overlay on `/surgery/images/cam4/pose_overlay/compressed`
 - Depth-to-color helpers for Hand/Blood (`metric_depth_in_rgb_frame` and related)
 - Coordinator-compatible `processing_enabled` / `processing_gate_topic`
+
+## 2026-08-25 model-scale integration
+
+- Added selectable `RFDETRSegMedium` and `RFDETRSegLarge` loaders without
+  removing the production Small path.
+- Preserved Small's validated BGR + class-agnostic NMS behavior.
+- Added Medium/Large RGB input conversion with no extra NMS.
+- Added checkpoint hashes, server sanity results, validation metrics, and the
+  Small BGR/RGB ablation metadata.
+
+## 2026-08-25 XLarge integration
+
+- Added `RFDETRSegXLarge` with RGB input, no extra NMS, and provisional
+  rosbag39 threshold 0.40.
+- Renamed the Small delivery artifact without an epoch suffix because the
+  checkpoint records zero-based epoch index 13; `e13` was ambiguous.
+
+## 2026-08-25 workspace and temporal postprocessing
+
+- Corrected the camera-role contract to CAM4=Mayo stand and CAM3=tray.
+- Added normalized polygon ROI filtering using mask-overlap and mask-centroid
+  acceptance without clipping accepted tool masks.
+- Added class-independent mask/bbox/centroid temporal association and a
+  confidence-weighted recent-history class switch hysteresis.
+- Enabled a provisional 2026-08-14 Mayo ROI for CAM4. CAM3 tray ROI remains
+  disabled pending delivery of August CAM3 images.
 
 Input topics, native `16UC1 compressedDepth` decode, depth-to-color
 registration, and `PLANAR_4DOF_WITH_NORMAL_PRIOR` pose semantics are unchanged

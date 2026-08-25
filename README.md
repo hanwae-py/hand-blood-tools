@@ -7,7 +7,7 @@ take-turn controller.
 
 | Component | Version included | Role |
 |---|---|---|
-| `components/tool_runtime_v1_6` | Tool v1.6 | RGB Tool segmentation; class-agnostic NMS; optional depth sample + planar 4-DOF-with-normal-prior pose |
+| `components/tool_runtime_v1_6` | Tool v1.6 | Selectable RF-DETR Seg Small/Medium/Large/XLarge Tool segmentation; optional depth sample + planar 4-DOF-with-normal-prior pose |
 | `components/hand_keypoints_ros` | current | MediaPipe hand keypoints + depth-derived hand pose |
 | `components/blood_detection` | current | RF-DETR Seg-Small 2D Blood mask/blue overlay; optional centroid depth |
 | `components/coordinator_ws` | current | `DETECT_TOOL`, `DETECT_HAND`, `DETECT_BLOOD`, `STOP` lifecycle selector |
@@ -18,12 +18,30 @@ folders. They must be supplied locally on the destination PC.
 
 ## Required external checkpoints
 
-Tool current weights:
-`cam4_rfdetr_seg_small_regular_resume_e13_best.pth`.
+Tool weights are selectable without removing the existing Small model:
+`cam4_rfdetr_seg_small_regular_resume_best.pth`, `medium_best.pth`,
+`large_best.pth`, or `xlarge_best.pth`.
 Download Tool checkpoints from
 [this Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
-Copy the `.pth` you want onto the destination PC and set
-`TOOL_CHECKPOINT` in `config/system.env`.
+Copy the `.pth` files onto the destination PC and set `TOOL_MODEL_SIZE` plus
+the matching `TOOL_CHECKPOINT_SMALL`, `TOOL_CHECKPOINT_MEDIUM`, and
+`TOOL_CHECKPOINT_LARGE`, and `TOOL_CHECKPOINT_XLARGE` paths in
+`config/system.env`. The legacy
+`TOOL_CHECKPOINT` variable remains a Small fallback.
+
+Small preserves its validated BGR input and class-agnostic NMS contract.
+Medium, Large, and XLarge use RF-DETR's RGB NumPy input contract and no extra
+NMS. For example, select XLarge with:
+
+```bash
+TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh cam_4
+```
+
+Tool postprocessing supports a camera-calibrated workspace polygon and
+class-independent mask/bbox association with temporal class smoothing. CAM4
+is the Mayo-stand camera and has a provisional ROI from the 2026-08-14 bag.
+CAM3 is the August tray camera; its ROI stays disabled until CAM3 August image
+data is received and calibrated.
 
 Blood:
 [RF-DETR Seg-Small checkpoint](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view).
@@ -129,10 +147,10 @@ and is converted with `0.001 m/unit`. This is **not** normalized monocular depth
 | Blood | Always runs RF-DETR and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`) in the RGB frame (same HxW, or depth-to-color registration). No suction pose |
 | Hand | 2D MediaPipe keypoints | Back-projects keypoints with RealSense metric depth in the RGB frame (same HxW, or depth-to-color registration) |
 
-Tool defaults: `confidence_threshold` 0.30, class-agnostic bounding-box NMS
-(IoU 0.80), `require_depth:=false`. Missing depth skips metric fields and still
-publishes 2D. Set `require_depth:=true` to drop frames that have no usable
-depth. Tool also publishes a pose-axis overlay on
+Tool defaults: `confidence_threshold` 0.30 and `require_depth:=false`. Small
+uses class-agnostic bounding-box NMS (IoU 0.80); larger variants use no
+additional NMS. Missing depth skips metric fields and still publishes 2D. Set
+`require_depth:=true` to drop frames that have no usable depth. Tool also publishes a pose-axis overlay on
 `/perception/cam_4/tool/pose_overlay/compressed` when a pose result exists.
 
 Hand's run script sets `depth_source:=real`, so the deploy path is the
@@ -194,6 +212,8 @@ bash scripts/run_final_overlay.sh
 - Tool v1.6 pose is `PLANAR_4DOF_WITH_NORMAL_PRIOR`, not unrestricted full 6D.
 - Class-agnostic NMS can suppress overlapping boxes even when their class IDs
   differ.
+- Workspace ROI coordinates are camera-installation specific. Recalibrate
+  after moving the camera, Mayo stand, or tray.
 - Valid Tool pose and Hand 3D both need confirmed metric scale and RGB-depth
   alignment; the current run defaults leave those flags false.
 - Blood currently publishes 2D masks plus an optional centroid depth sample.

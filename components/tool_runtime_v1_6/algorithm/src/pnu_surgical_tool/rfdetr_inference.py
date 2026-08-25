@@ -14,31 +14,88 @@ import numpy as np
 from .types import DetectionBatch, DetectionInstance
 
 
+ModelSize = Literal["small", "medium", "large", "xlarge"]
+ColorOrder = Literal["RGB", "BGR"]
+
+
+@dataclass(frozen=True)
+class _ModelRuntimeSpec:
+    class_name: str
+    checkpoint_color_order: ColorOrder
+    enable_class_agnostic_nms: bool
+    model_version: str
+
+
+_MODEL_RUNTIME_SPECS: dict[ModelSize, _ModelRuntimeSpec] = {
+    "small": _ModelRuntimeSpec(
+        class_name="RFDETRSegSmall",
+        checkpoint_color_order="BGR",
+        enable_class_agnostic_nms=True,
+        model_version="cam4-rfdetr-seg-small-regular-resume-best",
+    ),
+    "medium": _ModelRuntimeSpec(
+        class_name="RFDETRSegMedium",
+        checkpoint_color_order="RGB",
+        enable_class_agnostic_nms=False,
+        model_version="cam4-rfdetr-seg-medium-20260825-best",
+    ),
+    "large": _ModelRuntimeSpec(
+        class_name="RFDETRSegLarge",
+        checkpoint_color_order="RGB",
+        enable_class_agnostic_nms=False,
+        model_version="cam4-rfdetr-seg-large-20260825-best",
+    ),
+    "xlarge": _ModelRuntimeSpec(
+        class_name="RFDETRSegXLarge",
+        checkpoint_color_order="RGB",
+        enable_class_agnostic_nms=False,
+        model_version="cam4-rfdetr-seg-xlarge-20260825-best",
+    ),
+}
+
+
 @dataclass(frozen=True)
 class DetectorConfig:
     checkpoint_path: str | Path
     ontology_path: str | Path
     confidence_threshold: float = 0.3
-    enable_class_agnostic_nms: bool = True
+    enable_class_agnostic_nms: bool | None = None
     class_agnostic_nms_iou: float | None = 0.8
     optimize: bool = True
     jit_compile: bool = True
     fp16: bool = True
-    model_version: str = "cam4-rfdetr-seg-small-regular-resume-e13-best"
-    checkpoint_color_order: Literal["RGB", "BGR"] = "BGR"
+    model_size: ModelSize = "small"
+    model_version: str | None = None
+    checkpoint_color_order: ColorOrder | None = None
 
 
 class SurgicalToolDetector:
     """Load the supplied checkpoint and return class/bbox/instance-mask results.
 
-    Input arrays may be RGB or BGR. They are normalized to the color order used
-    by the supplied checkpoint's validated inference path (BGR for v1).
+    Input arrays may be RGB or BGR. They are normalized to the selected model's
+    validated contract: legacy Small uses BGR; larger variants use RGB.
     Loading is intentionally lazy so pose-only users do not need RF-DETR.
     """
 
     def __init__(self, config: DetectorConfig) -> None:
         self.config = config
         self._model = None
+        if config.model_size not in _MODEL_RUNTIME_SPECS:
+            supported = ", ".join(_MODEL_RUNTIME_SPECS)
+            raise ValueError(
+                f"model_size must be one of {supported}; got {config.model_size!r}"
+            )
+        self._runtime_spec = _MODEL_RUNTIME_SPECS[config.model_size]
+        self.model_version = config.model_version or self._runtime_spec.model_version
+        self.checkpoint_color_order = (
+            config.checkpoint_color_order
+            or self._runtime_spec.checkpoint_color_order
+        )
+        self.enable_class_agnostic_nms = (
+            self._runtime_spec.enable_class_agnostic_nms
+            if config.enable_class_agnostic_nms is None
+            else config.enable_class_agnostic_nms
+        )
         payload = json.loads(Path(config.ontology_path).read_text(encoding="utf-8"))
         classes = payload["canonical_tool_classes"]
         self._classes = sorted(classes, key=lambda item: int(item["canonical_id"]))
@@ -51,7 +108,7 @@ class SurgicalToolDetector:
             0.0 <= config.class_agnostic_nms_iou <= 1.0
         ):
             raise ValueError("class_agnostic_nms_iou must be in [0, 1]")
-        if config.checkpoint_color_order not in ("RGB", "BGR"):
+        if self.checkpoint_color_order not in ("RGB", "BGR"):
             raise ValueError("checkpoint_color_order must be 'RGB' or 'BGR'")
 
     def load(self) -> None:
@@ -61,9 +118,10 @@ class SurgicalToolDetector:
         if not checkpoint.is_file():
             raise FileNotFoundError(checkpoint)
         import torch
-        from rfdetr import RFDETRSegSmall
+        import rfdetr
 
-        model = RFDETRSegSmall.from_checkpoint(str(checkpoint))
+        model_class = getattr(rfdetr, self._runtime_spec.class_name)
+        model = model_class.from_checkpoint(str(checkpoint))
         if self.config.optimize:
             if not torch.cuda.is_available():
                 raise RuntimeError(
@@ -81,7 +139,7 @@ class SurgicalToolDetector:
     def predict(
         self,
         image: np.ndarray,
-        color_order: Literal["RGB", "BGR"],
+        color_order: ColorOrder,
         confidence_threshold: float | None = None,
     ) -> DetectionBatch:
         frame = np.asarray(image)
@@ -97,8 +155,10 @@ class SurgicalToolDetector:
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("confidence_threshold must be in [0, 1]")
         self.load()
-        if color_order == self.config.checkpoint_color_order:
+        if color_order == self.checkpoint_color_order:
             model_image = frame
+        elif color_order == "BGR":
+            model_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         else:
             model_image = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
@@ -129,7 +189,7 @@ class SurgicalToolDetector:
                 confidences,
                 self.config.class_agnostic_nms_iou,
             )
-            if self.config.enable_class_agnostic_nms
+            if self.enable_class_agnostic_nms
             and self.config.class_agnostic_nms_iou is not None
             else np.arange(len(boxes), dtype=int)
         )
@@ -162,7 +222,7 @@ class SurgicalToolDetector:
         return DetectionBatch(
             image_width=width,
             image_height=height,
-            model_version=self.config.model_version,
+            model_version=self.model_version,
             ontology_version=self.ontology_version,
             instances=instances,
             inference_latency_ms=latency_ms,

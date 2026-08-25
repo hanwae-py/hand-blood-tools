@@ -40,7 +40,7 @@ def payload_files() -> list[Path]:
 
 def main() -> None:
     files = payload_files()
-    model = ROOT / "algorithm/model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth"
+    model = ROOT / "algorithm/model/cam4_rfdetr_seg_small_regular_resume_best.pth"
     manifest = {
         "schema": "pnu.surgical_tool.ros2_runtime_manifest.v1",
         "release_id": "PNU_CVLAB_SURGICAL_TOOL_ROS2_RUNTIME_v1_6_COMPAT_20260820_rc1",

@@ -1,15 +1,15 @@
-# CAM4 RF-DETRSegSmall regular-resume epoch-13 model card
+# CAM4 RF-DETRSegSmall regular-resume best model card
 
 ## Identification
 
-- model version: `cam4-rfdetr-seg-small-regular-resume-e13-best`
+- model version: `cam4-rfdetr-seg-small-regular-resume-best`
 - architecture: `RFDETRSegSmall`
 - RF-DETR version: `1.8.3`
 - frozen class count: 8
-- checkpoint: `cam4_rfdetr_seg_small_regular_resume_e13_best.pth`
+- checkpoint: `cam4_rfdetr_seg_small_regular_resume_best.pth`
 - SHA-256: `253617aa5337fec219d694ca50537e4867fb8c403ce60f3a6945bbe15fecf430`
 - source checkpoint: `checkpoint_best_regular.pth`
-- epoch / global step: 13 / 1274
+- checkpoint epoch index / human-readable epoch / global step: 13 / 14 / 1274
 - input color contract: OpenCV BGR
 
 ## Runtime defaults

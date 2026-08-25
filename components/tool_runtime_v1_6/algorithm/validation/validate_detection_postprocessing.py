@@ -51,7 +51,7 @@ def main() -> None:
     assert empty.shape == (0,)
     defaults = DetectorConfig("checkpoint", "ontology")
     assert defaults.confidence_threshold == 0.3
-    assert defaults.enable_class_agnostic_nms is True
+    assert defaults.enable_class_agnostic_nms is None
     assert defaults.class_agnostic_nms_iou == 0.8
     disabled = DetectorConfig(
         "checkpoint", "ontology", enable_class_agnostic_nms=False

@@ -26,5 +26,5 @@ frame-99의 z-buffered organized point 정본과 이 API의 재투영 P_obs를 �
 
 ## 해석
 
-NUC의 GPU/driver/입력 instance 수가 다르면 수치가 그대로 재현되지 않는다. CAM4+tray 동시 처리와
+NUC의 GPU/driver/입력 instance 수가 다르면 수치가 그대로 재현되지 않는다. CAM4 Mayo+CAM3 tray 동시 처리와
 Hand/Blood 통합 후에는 shared-resource benchmark를 새로 수행해야 한다.

@@ -20,10 +20,35 @@
     diagnostics_topic: "/perception/cam_4/tool/diagnostics"
     health_topic: "/perception/cam_4/tool/health"
     view: "cam_4"
+    workspace_zone: "mayo"
 
     confidence_threshold: 0.3
     enable_class_agnostic_nms: true
     class_agnostic_nms_iou: 0.8
+
+    # Provisional Mayo-stand polygon measured on the 2026-08-14 CAM4 bag.
+    # Recalibrate if the fixed camera or stand moves.
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+      - 0.402
+      - 0.215
+      - 0.698
+      - 0.197
+      - 0.705
+      - 0.651
+      - 0.409
+      - 0.663
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true
+    temporal_class_smoothing_enabled: true
+    temporal_class_history_size: 7
+    temporal_class_minimum_switch_frames: 3
+    temporal_class_switch_score_margin: 0.2
+    temporal_association_minimum_mask_iou: 0.1
+    temporal_association_minimum_bbox_iou: 0.2
+    temporal_association_maximum_centroid_distance_norm: 0.06
+    temporal_association_maximum_mask_area_ratio: 3.0
+    temporal_track_max_missed_frames: 3
     pose_axis_length_m: 0.05
     optimize_for_inference: true
     jit_compile: true

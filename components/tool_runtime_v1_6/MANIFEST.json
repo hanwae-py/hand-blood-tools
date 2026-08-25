@@ -28,8 +28,8 @@
   "files": [
     {
       "path": "INPUT_AND_CALIBRATION.md",
-      "size_bytes": 2002,
-      "sha256": "2cb5320015b3e6f7c0ee6aaa23c00050311688375b7cc1d07115f21e2113b0f9"
+      "size_bytes": 2346,
+      "sha256": "1403d45fcb79dd3078b3e155dab59efef8f839785b04f9b515d87f4d1b85bb4b"
     },
     {
       "path": "LICENSE",
@@ -38,23 +38,23 @@
     },
     {
       "path": "OUTPUT_CONTRACT.md",
-      "size_bytes": 1353,
-      "sha256": "81621855bebdf2ced584a53d796ffd93c8b68d5fcaa8c31eef6d470f6f1208c7"
+      "size_bytes": 1441,
+      "sha256": "0d1a3f19449fcb8e871b5e3318e89a94f23d82401c169ead3ab5e6a6b31fafe7"
     },
     {
       "path": "README_EN.md",
-      "size_bytes": 1762,
-      "sha256": "213c061acdf9f297f781d15c775197f9d51dd2b01e8beb993e75faa2ee535226"
+      "size_bytes": 1819,
+      "sha256": "6c7fd30739a30ece425458936265e1efe70c6b3c162e2d699405db9ce6bdfaf1"
     },
     {
       "path": "README_KO.md",
-      "size_bytes": 1931,
-      "sha256": "8bed92527b79cccd187d3a715ee289fb1f10ed50435faad3794a83f1bf58d640"
+      "size_bytes": 1807,
+      "sha256": "f22f3b47d99422ade0e88e5d56775dd68d749b77bd749b9c08b88e591116dc12"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "size_bytes": 681,
-      "sha256": "a48a769b059df684b137c81eddfcffb06398d43ebf57f86f31977cae02055627"
+      "size_bytes": 1826,
+      "sha256": "f93b43dafb21604375f765e4c89c7aaa78629343a60a39eecce76e57630b10ab"
     },
     {
       "path": "VALIDATION_REPORT.md",
@@ -68,8 +68,8 @@
     },
     {
       "path": "algorithm/DELIVERY_CHECKLIST.md",
-      "size_bytes": 1602,
-      "sha256": "1ccfb2336d06f3e3770dc5f1c78443d7f4be5cac5347606698b5c65ef9bdb553"
+      "size_bytes": 1641,
+      "sha256": "33fa88b82c063f319970f5ac1572e4458c8b1867f6f179558be3e1fcb014f67b"
     },
     {
       "path": "algorithm/LICENSES/THIRD_PARTY_AND_DATA_REVIEW.md",
@@ -78,13 +78,13 @@
     },
     {
       "path": "algorithm/QUICKSTART.md",
-      "size_bytes": 1954,
-      "sha256": "1b4580f6a8b80cf410734e8aabdac5a0a274935fb255c1927cc8ee0d60fcafd4"
+      "size_bytes": 2772,
+      "sha256": "125100194ce5131c7d39e2c44b1f48bc35ddd50afd81ac07f43fb86fccb34791"
     },
     {
       "path": "algorithm/README_KO.md",
-      "size_bytes": 3219,
-      "sha256": "98fd7965c9927128f22ecaa627b640a69ec86ef3e9e18f7f2f1ed68aa7396433"
+      "size_bytes": 3669,
+      "sha256": "298e5e5045d2495827dc7cd43cfabe6501dd7b02a4c510330604119b798a88e7"
     },
     {
       "path": "algorithm/VERSION",
@@ -98,8 +98,13 @@
     },
     {
       "path": "algorithm/config/default_inference.json",
-      "size_bytes": 508,
-      "sha256": "bff207d470aa79116b216acb707023df2d71086f75a9a58e39e7dc04547cb53f"
+      "size_bytes": 1031,
+      "sha256": "11ae62d455158487de6351fda8098278e3d787f2c3939df339a82cf0cbde66c7"
+    },
+    {
+      "path": "algorithm/config/model_variants.json",
+      "size_bytes": 1617,
+      "sha256": "f710215c08507c596b5e5801fab668ddc088302f59fb58291bb9670c88b18334"
     },
     {
       "path": "algorithm/config/pose_convention_v2.json",
@@ -108,23 +113,33 @@
     },
     {
       "path": "algorithm/docs/ALGORITHM_API.md",
-      "size_bytes": 4793,
-      "sha256": "ae47d2e6c9d8e80958aa3d532b4813f6b8f6383c455434fca76e727699473f2d"
+      "size_bytes": 6701,
+      "sha256": "c092e09cca83ed324f11af98ae01886e7e6d6811f0871bf3abecf9885b851b60"
+    },
+    {
+      "path": "algorithm/docs/CAM4_T030_ROI_TEMPORAL_EVALUATION_20260825.md",
+      "size_bytes": 2152,
+      "sha256": "276b1262ba193af6e5c8056c492c40a4af4b9e3c335607c32526df9f2dbe6dcd"
     },
     {
       "path": "algorithm/docs/LIMITATIONS.md",
-      "size_bytes": 1215,
-      "sha256": "d1dac8695c11352a24005378cc45fda7719943723b0ba7523cf2d991516b54ed"
+      "size_bytes": 1518,
+      "sha256": "69860cf0bd49592c128c048ae551aecc2f3b1d81486069a72c75b0af0ad7a13a"
     },
     {
       "path": "algorithm/docs/PERFORMANCE.md",
-      "size_bytes": 1409,
-      "sha256": "0a7fa2de2498fd3c5f3f65ac309866018a47b3b2b3b1b01bbe8e83f8178ff204"
+      "size_bytes": 1419,
+      "sha256": "2d6ca0b3914e80776d0da4d3105aee9c1959d47dee89dcc33137377cbf998ff5"
     },
     {
       "path": "algorithm/docs/POSE_DEFINITION.md",
       "size_bytes": 1543,
       "sha256": "11c220ea66cb20897ade17f8c00d0053df2918dc3f3902a107d5078f7ab78767"
+    },
+    {
+      "path": "algorithm/docs/ROSBAG39_EVALUATION_20260825.md",
+      "size_bytes": 5126,
+      "sha256": "9de3e6abda76ab1f2ad05484558be53c7af4fabfa0d79aceb2825d877700fcec"
     },
     {
       "path": "algorithm/environment/environment.yml",
@@ -133,8 +148,8 @@
     },
     {
       "path": "algorithm/environment/install_nuc.md",
-      "size_bytes": 1392,
-      "sha256": "fbabe2057d1909f25d254c379dc66be67e7dcb303d3dcf9af0e8eb1806c4d408"
+      "size_bytes": 1429,
+      "sha256": "aa44df207b089165adbed6daabf0c0aef4e19d80dd667e7bdcdcca7e29392296"
     },
     {
       "path": "algorithm/environment/requirements-reference-cu118.txt",
@@ -148,18 +163,43 @@
     },
     {
       "path": "algorithm/examples/run_detection.py",
-      "size_bytes": 2998,
-      "sha256": "49bfb41ce7712797a5f0fbb951fc5e731ee6b8ab9f7422d8bf167c2b9fa51c21"
+      "size_bytes": 3190,
+      "sha256": "eedce83fae2fa681e95614202bcc23ff580dfac02e94f0360eff17e126662c1a"
     },
     {
       "path": "algorithm/examples/run_detection_and_pose.py",
-      "size_bytes": 3810,
-      "sha256": "38f6be93645f96bdb5a77fb47bffbcd08ba2ecb8ca4a2357b0d8e4a5397903a2"
+      "size_bytes": 4002,
+      "sha256": "d97b24ed4d2be434ccdad1a7e0f64f3cce29b79f7366111c7b10cf591be5485b"
     },
     {
       "path": "algorithm/metadata/internal_performance_rtx3060.json",
       "size_bytes": 3717,
       "sha256": "104bb0909784d2e3f6815d9ecef5d8db5440c4e992cfe2c06af3d6b26ce6c2c3"
+    },
+    {
+      "path": "algorithm/metadata/rfdetr_medium_large_xlarge_delivery_20260825.json",
+      "size_bytes": 8003,
+      "sha256": "adf960873b04d57caf8949e14940b5c6ce9b807d7405566ccd82b0ab986ce125"
+    },
+    {
+      "path": "algorithm/metadata/rfdetr_medium_large_xlarge_server_sanity_20260825.json",
+      "size_bytes": 1684,
+      "sha256": "2e93588719fc9afbf662e015756cff956c311b0f36a6863c229f81a2772a8de1"
+    },
+    {
+      "path": "algorithm/metadata/rosbag39_large_xlarge_20260825.json",
+      "size_bytes": 13865,
+      "sha256": "bd3ed826e10d532f766fe28d9704448a80a4937c7f58b0bd9e07d3a1c7d8f278"
+    },
+    {
+      "path": "algorithm/metadata/rosbag39_small_medium_20260825.json",
+      "size_bytes": 13800,
+      "sha256": "cccffa039f423f894360aa8e97e42c6d273c647c90ed6964bd71acc445e6bb16"
+    },
+    {
+      "path": "algorithm/metadata/small_bgr_rgb_ablation_20260825.json",
+      "size_bytes": 2608,
+      "sha256": "9e0ec9d1744c2c0063f9772b84af5b39bb21f82775a25542224da43921e1b0aa"
     },
     {
       "path": "algorithm/metadata/training_summary.json",
@@ -172,14 +212,19 @@
       "sha256": "88619b369a49f93227f7198f992f2bc46af8a5b257c4f3804009f56109d63879"
     },
     {
-      "path": "algorithm/model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth",
+      "path": "algorithm/model/cam4_rfdetr_seg_small_regular_resume_best.pth",
       "size_bytes": 133941485,
       "sha256": "253617aa5337fec219d694ca50537e4867fb8c403ce60f3a6945bbe15fecf430"
     },
     {
       "path": "algorithm/model/model_card.md",
-      "size_bytes": 2226,
-      "sha256": "27403523badc532d4f4c6c242565251496d3a49f42f48df1c76e4b882daf3c4f"
+      "size_bytes": 2259,
+      "sha256": "c5940b4a61a56264b764fa47b28ed2348fdf7a38de399c281ad354aad4c0de1b"
+    },
+    {
+      "path": "algorithm/model/model_card_medium_large_xlarge_20260825.md",
+      "size_bytes": 6765,
+      "sha256": "0f6da7915e8edd91e49304c2716dea41b0d1559a142a9a31ddb1b4e688234767"
     },
     {
       "path": "algorithm/model/ontology.json",
@@ -193,18 +238,23 @@
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/__init__.py",
-      "size_bytes": 1378,
-      "sha256": "c9abce91c85a828b5bce17ee7c6579e5b6fe1b56731c88b4e43f095ef1999142"
+      "size_bytes": 2549,
+      "sha256": "2db5ec68498f4c3ff3eecd73df946df9219fc0aec5ca802d4813838e0d32a63a"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/api.py",
-      "size_bytes": 2979,
-      "sha256": "8f23a1f77ce804c8f88ade8218f8bf7962de1a18dc8b241f9a2e10abb1cf3c06"
+      "size_bytes": 3305,
+      "sha256": "0206eead415a6d4608327fd46e907edd622291fe4b84e6a6e35122be7e89de2e"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/depth_registration.py",
-      "size_bytes": 13052,
-      "sha256": "196549162c69c66f5ab7ae6a81eb241adf2b774f0ef9254d55f4ef1a9ab73862"
+      "size_bytes": 17181,
+      "sha256": "c8ed0178981c663c9662756623f871478afada11ea3461d16ff570dccda47282"
+    },
+    {
+      "path": "algorithm/src/pnu_surgical_tool/detection_postprocessing.py",
+      "size_bytes": 16627,
+      "sha256": "3f065e9c3d6113c2cd489e5932ddfd9c94aebfe5cfa60590562c330e8b6fd9db"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/planar_pose.py",
@@ -213,8 +263,8 @@
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/rfdetr_inference.py",
-      "size_bytes": 8608,
-      "sha256": "1b3da81467d57af5737c88a69e7145d62343aa0e66834597626df7574962679b"
+      "size_bytes": 10688,
+      "sha256": "40fd8a6583c62e3d603afdd881d5f93ac1fccb5a3722bdcd165a75bf570324fe"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/rle.py",
@@ -232,24 +282,39 @@
       "sha256": "6accbfa679a53454805506cf46c4900c0c46b3a10772ae6c2b2690f4b7143794"
     },
     {
+      "path": "algorithm/tests/test_detection_postprocessing.py",
+      "size_bytes": 5738,
+      "sha256": "bb193ddaba0eebc8053792e493939f6993cf91cf78eaac03e6b3df542369a879"
+    },
+    {
       "path": "algorithm/tests/test_planar_origin.py",
-      "size_bytes": 3666,
-      "sha256": "487772dd9bde6c3a4e35bf566d78254128cac0994501db3e8691290965d7aeb5"
+      "size_bytes": 5254,
+      "sha256": "a71f3a9352b800f0b1a9b337766e088c9e8b4919284fd39cb89b1ba7be3b5e29"
+    },
+    {
+      "path": "algorithm/tests/test_rfdetr_model_selection.py",
+      "size_bytes": 3513,
+      "sha256": "e44de6288c0c0df5ce326d460b000940cc17027ca5b81e7b00071542c3b50a33"
+    },
+    {
+      "path": "algorithm/validation/evaluate_rfdetr_rosbag_frames.py",
+      "size_bytes": 24674,
+      "sha256": "e62f5b512d3c23129bf73e45ececed397db2984d0520fcbe05196bb79f6f7741"
     },
     {
       "path": "algorithm/validation/validate_detection.py",
-      "size_bytes": 1619,
-      "sha256": "8271d1e573e5ba08962b71c03cb646f521349b0ad6f491a3202d2a9bbb3bfab9"
+      "size_bytes": 1636,
+      "sha256": "9a89d51e1515f31b42274a7fdcd49e2c629ecfafad16208b8dfec5ad9475c442"
     },
     {
       "path": "algorithm/validation/validate_detection_and_pose.py",
-      "size_bytes": 4354,
-      "sha256": "ad983e232f00dd1e8e38e1ea984a31ae6044fcb96d09893a8c7dfc74402bb593"
+      "size_bytes": 4371,
+      "sha256": "6fe13b7d6d3b1f16a4d51a81dc34391378bd7ca7f819c113d498648afe77ccda"
     },
     {
       "path": "algorithm/validation/validate_detection_postprocessing.py",
       "size_bytes": 2478,
-      "sha256": "7215235e7a6baae1d54b9bb92bb8e9eda8f5ca42898ad3bcf48268df2760116b"
+      "sha256": "826bc16323350e72146e009f85ebb5f3e45f76f52a6fd7d0be31152a4304beb9"
     },
     {
       "path": "algorithm/validation/validate_native_depth_registration.py",
@@ -268,23 +333,53 @@
     },
     {
       "path": "docs/NATIVE_DEPTH_TOOL_POSE_ROS2.md",
-      "size_bytes": 2948,
-      "sha256": "4bf37e549293061cbeb43d9b0789868c34e43b866b6e280e895e93cc2525da38"
+      "size_bytes": 2918,
+      "sha256": "3d2210e9ea285539e871fa489707b7d94a718f8ac48d2b8a144f6375e1128147"
     },
     {
       "path": "release_tools/generate_manifest.py",
-      "size_bytes": 3190,
-      "sha256": "2b37306a722cd2ab42042e7331f16bbacae6ebe9fcb6fb732a3bfd297e80e027"
+      "size_bytes": 3186,
+      "sha256": "2f3ddb353e3cfe2cc5859892b11133bf694b30d3e1f7ac82a224e86711b290c4"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam3_live_native_pose.yaml",
+      "size_bytes": 4311,
+      "sha256": "f8038b2c0fb583485cbb06fac826b7bb02871320023d38949e834241082c177e"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam3_live_native_pose.yaml.orig",
+      "size_bytes": 2391,
+      "sha256": "0e664a44b6715a35cf39237f183462c921d0f0397b740a1960770ba63f67b13f"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam3_live_native_pose.yaml.pre-spatial-selector-20260822",
+      "size_bytes": 3270,
+      "sha256": "f981b79afb0d5eee2d7c5ef0b59ca11aa7feb9283ec18f7149ecba2c0350178f"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam4_live_native_pose.yaml",
+      "size_bytes": 4894,
+      "sha256": "b06658396097eb9ed417b97672f0b494148d0e809189f4dcc0466411675e1ea2"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam4_live_native_pose.yaml.orig",
+      "size_bytes": 3038,
+      "sha256": "787a3938e9f3a7b844bf68c8be61f7cac50c7a93cd4c3a61e0dd57a188b9a5d0"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/cam4_live_native_pose.yaml.pre-spatial-selector-20260822",
+      "size_bytes": 3899,
+      "sha256": "a6b254a4da23f6edfc690311623af302eb6841742ed684790b43439aa1ea0927"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/config/cam4_reference_mcap_native_pose.yaml",
-      "size_bytes": 2599,
-      "sha256": "f731378f904c319e3c06465b83ff4228b25fb7606ca951b67a14be2866444938"
+      "size_bytes": 4109,
+      "sha256": "93c6179e2da54f1b6e658d87adb42080edba3b6788ad5b4ed103278332af904c"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/package.xml",
-      "size_bytes": 965,
-      "sha256": "b62d044654ecaf41dcfd9900cdde7a45f78abf5642a225dc521f025cee5e2f96"
+      "size_bytes": 1151,
+      "sha256": "f176ae04b00b1f0e2e55a1225ab31599f1ae5c1c7ab59d8bfa0dd958db586304"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/__init__.py",
@@ -292,9 +387,39 @@
       "sha256": "9ea192e5e2456d56be1d8987d248f6b65edb26dae293323fd7eca293e348c032"
     },
     {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/debug_overlay_compositor.py",
+      "size_bytes": 12193,
+      "sha256": "e7a78e89083628888d4cbee9810d75abe1983e785e6d9ba3875923d906d9110b"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/depth_to_color_extrinsics.py",
+      "size_bytes": 3927,
+      "sha256": "50056f52af515db5353442a08728a4ca6a7428c595cbc819d980d310fd35a48d"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/final_overlay_compositor.py",
+      "size_bytes": 28755,
+      "sha256": "1ed9d7a28ce3be111626f8e5da65b2313740a15f60a3d3385b76cc16f91e6871"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/final_overlay_compositor.py.pre-source-window-fix-20260822",
+      "size_bytes": 28024,
+      "sha256": "e20c2aae9132b041aa8b92ad3c4fe3be3b6b8dbecfc2af668187591178cf20ee"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/final_overlay_contract.py",
+      "size_bytes": 2194,
+      "sha256": "33f9bb4956cdeda98828e7130c45f9a41b59a56d1cb7a423278954d58bf1896d"
+    },
+    {
       "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/native_depth_pose_node.py",
-      "size_bytes": 38779,
-      "sha256": "83eb90ae6ac6a746ac11451cc1598a65c810ee4070d53c24480b35836a7e38d6"
+      "size_bytes": 71082,
+      "sha256": "681e56320995f1806390046db9c5935a5ebf50422798c321440d219e142fe8c0"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/native_depth_pose_node.py.pre-spatial-selector-20260822",
+      "size_bytes": 61633,
+      "sha256": "c17d29bd79d4d8c3a8b0bcf17b9ce9a8b22f34ebd2f22a8eddd5c24a43b13a79"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/native_depth_sync.py",
@@ -307,9 +432,24 @@
       "sha256": "b194f3e28539dccc0bea0ab84e6baf319a6f1dc6ca8bd2a04c88e8a5fbb03f5e"
     },
     {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/perception_ingress.py",
+      "size_bytes": 8852,
+      "sha256": "c718a4198d0362c495b0c0d0dbbf0bc832b2ebd614031086be907b7c8513835f"
+    },
+    {
       "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/pose_message_mapping.py",
       "size_bytes": 11475,
       "sha256": "cf7de1d15f29c2486df2e8b4f4125e6ec7a3798d59fafcdf941eb22f80aaf6bf"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/tool_pose_tf.py",
+      "size_bytes": 24749,
+      "sha256": "0d5591c6091e9a968a51b2bf221161ce5a0950085310eb21b4703c922d556175"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/pnu_surgical_perception/tool_pose_tf.py.pre-spatial-selector-20260822",
+      "size_bytes": 16552,
+      "sha256": "9e490794e7dc23f75658a0076e4ca1adcdf59f2590d7fea04f16bf2506bbc15b"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/resource/pnu_surgical_perception",
@@ -323,8 +463,8 @@
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/setup.py",
-      "size_bytes": 908,
-      "sha256": "74c9674f68dcbbcd0a2364d35c6b384d858a50aaf430da21639db00d9cfa70fb"
+      "size_bytes": 1184,
+      "sha256": "c70bf6cdf26bbc96b38a35829826ba78dd6b2817daee21232f447e2ae72aa78a"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/test/conftest.py",
@@ -332,9 +472,44 @@
       "sha256": "62c37a9b4af660d935d8b46ee5740181dfc3f2dcfbfd8226f1ed24ccb3475a8a"
     },
     {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_depth_to_color_extrinsics.py",
+      "size_bytes": 2459,
+      "sha256": "44a388ebefb33feba362ab734df2d70872e015e3415b312adf0bd16aeed7ca3c"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_final_overlay_contract.py",
+      "size_bytes": 1689,
+      "sha256": "953b9be59b596574284ae0cf25d1cc8880b5cee9588a722aa2dc9678123532a8"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_final_overlay_render_helpers.py",
+      "size_bytes": 7862,
+      "sha256": "588d25c710af3da6188dbb5e042f153b7b861c76c8538320e62659ecfbd1b58f"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_final_overlay_render_helpers.py.pre-source-window-fix-20260822",
+      "size_bytes": 7758,
+      "sha256": "56febd39e5fb93697dfbf49df1fe7fd42de43d637f8a18f01342ce83d34488b2"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_ingress_qos_compatibility.py",
+      "size_bytes": 3078,
+      "sha256": "5de96a7289b29b25e343b15e7b188f0cf6a2beffdb643a5086c4dad2be7f3146"
+    },
+    {
       "path": "ros2_ws/src/pnu_surgical_perception/test/test_native_depth_sync.py",
-      "size_bytes": 1589,
-      "sha256": "184e5a9575813c19bf79cfb9f88ce1fcafc81f25cc216d0fee669ea9fd4016f1"
+      "size_bytes": 3517,
+      "sha256": "280e5fe2da01c744965deeb07c0382a8b7dc0a83192c1ee62d446f76eef3e51b"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_node_shutdown_handling.py",
+      "size_bytes": 1670,
+      "sha256": "2d98fe0d150d5146c801162111a0120dbdeb5a084aa65325eb09f7cb249910ee"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_perception_ingress.py",
+      "size_bytes": 3586,
+      "sha256": "93f05229b519f78c5c73170eb28fac8c7b5fb1f8274d42f67e28796bfe0b5ad1"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/test/test_pose_message_mapping.py",
@@ -347,14 +522,24 @@
       "sha256": "0725c4999b960c87bbc9884f4d323ed23e5d1cdbecea35924a25f9020b0ef2a6"
     },
     {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_tool_pose_tf.py",
+      "size_bytes": 11449,
+      "sha256": "af259a14497e4bd596e52d8f6767182ddf35d67334798cd5df9dc412acc13a41"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/test/test_tool_pose_tf.py.pre-spatial-selector-20260822",
+      "size_bytes": 8081,
+      "sha256": "02ff18b65461008426c4dabb2661c973705c7aea718adcfbd06bc35a34d27f5b"
+    },
+    {
       "path": "ros2_ws/src/surgical_perception_msgs/CMakeLists.txt",
       "size_bytes": 487,
       "sha256": "a510e46cc18716ed6f0d798c6cfc189002f90aaecb2aa1fd1b6ee876188bb0d5"
     },
     {
       "path": "ros2_ws/src/surgical_perception_msgs/README.md",
-      "size_bytes": 1476,
-      "sha256": "5a820e0dbaee7913613a2bb95f8c224e0e2cfd7e84cde77222fd5956a9ab0172"
+      "size_bytes": 1461,
+      "sha256": "cec7e06a7e9299d352a7a2c6d86466565aece9088a54b6a525af4f4b550133c6"
     },
     {
       "path": "ros2_ws/src/surgical_perception_msgs/msg/ToolObservation2D.msg",
@@ -393,8 +578,8 @@
     },
     {
       "path": "scripts/run_cam4_native_pose.sh",
-      "size_bytes": 1189,
-      "sha256": "714eef221a52c06f9e5d8baca5fcd9cb892ccd5dcad37673349ded83444a147c"
+      "size_bytes": 2882,
+      "sha256": "c9ef74d2579d34f5b3177209e5d4704f40298471303fdd5fb5384a4d75db34ab"
     },
     {
       "path": "scripts/validate_bundle.sh",

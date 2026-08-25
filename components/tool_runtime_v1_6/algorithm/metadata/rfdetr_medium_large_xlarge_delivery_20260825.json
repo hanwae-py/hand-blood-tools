@@ -1,0 +1,185 @@
+{
+  "schema": "pnu.cam4.rfdetrseg.medium_large_xlarge_local_delivery.v1",
+  "created_date": "2026-08-25",
+  "status": "local_inference_ready_development_models",
+  "class_ontology": "pnu.cam4.tool_ontology.v1",
+  "model_class_ids": "zero_based",
+  "canonical_class_ids": "one_based",
+  "interest_model_class_ids": [2, 3, 4, 5],
+  "interest_classes": [
+    "Mosquito",
+    "Adson Forceps",
+    "Bipolar Forceps",
+    "Bovie"
+  ],
+  "class_contract": {
+    "same_count_and_order_as_existing_segsmall": true,
+    "num_classes": 8,
+    "model_class_names_zero_based": [
+      "Scalpel",
+      "Allis Forceps",
+      "Mosquito",
+      "Adson Forceps",
+      "Bipolar Forceps",
+      "Bovie",
+      "Army-Navy Retractor",
+      "Thyroid Retractor"
+    ]
+  },
+  "models": {
+    "medium": {
+      "variant": "RFDETRSegMedium",
+      "architecture": "RFDETRSegMedium",
+      "checkpoint_color_order": "RGB",
+      "predict_input_color_order": "RGB",
+      "decode_color_order": "BGR",
+      "conversion": "cv2.COLOR_BGR2RGB",
+      "native_resolution": 432,
+      "checkpoint": "models/medium_best.pth",
+      "checkpoint_sha256": "384ff11a41f3586cef910c9919f39c454b89d1ee4e337e4e50a519c633755e2b",
+      "selected_source": "regular",
+      "selected_epoch_one_based": 12,
+      "validation_bbox_map_50_95": 0.5470890402793884,
+      "validation_mask_map_50_95": 0.5232189893722534,
+      "source_run": "experiments/arpa_h_rfdetr/training/runs/20260825_scale_medium_native_b16_e20"
+    },
+    "large": {
+      "variant": "RFDETRSegLarge",
+      "architecture": "RFDETRSegLarge",
+      "checkpoint_color_order": "RGB",
+      "predict_input_color_order": "RGB",
+      "decode_color_order": "BGR",
+      "conversion": "cv2.COLOR_BGR2RGB",
+      "native_resolution": 504,
+      "checkpoint": "models/large_best.pth",
+      "checkpoint_sha256": "d739c2970c32f07f581a5f90f39b0d21fec416158f9284f953b739b90b0279fb",
+      "selected_source": "regular",
+      "selected_epoch_one_based": 18,
+      "validation_bbox_map_50_95": 0.5383508801460266,
+      "validation_mask_map_50_95": 0.556900143623352,
+      "source_run": "experiments/arpa_h_rfdetr/training/runs/20260825_scale_large_native_b16_e20"
+    },
+    "xlarge": {
+      "variant": "RFDETRSegXLarge",
+      "architecture": "RFDETRSegXLarge",
+      "checkpoint_color_order": "RGB",
+      "predict_input_color_order": "RGB",
+      "decode_color_order": "BGR",
+      "conversion": "cv2.COLOR_BGR2RGB",
+      "native_resolution": 624,
+      "checkpoint": "models/xlarge_best.pth",
+      "checkpoint_sha256": "504d6fcb3f01f4f7fa678147a518f97f9f81a9f84962f382df6041ddcdbbc577",
+      "selected_source": "regular",
+      "selected_epoch_one_based": 16,
+      "checkpoint_best_total_weights_equal_best_regular": true,
+      "validation_bbox_map_50_95": 0.5114538498227454,
+      "validation_bbox_map_50": 0.7834469157703692,
+      "validation_bbox_map_75": 0.6783264321383616,
+      "validation_bbox_mar_100": 0.5627510108403918,
+      "validation_mask_map_50_95": 0.610315352095431,
+      "validation_mask_map_50": 0.7942684571738327,
+      "validation_mask_map_75": 0.7689649258715102,
+      "validation_mask_mar_100": 0.6693403249793765,
+      "source_run": "experiments/arpa_h_rfdetr/training/runs/20260825_scale_xlarge_native_b16_e20"
+    }
+  },
+  "training_dataset": {
+    "schema": "pnu.cam4.round4_r1mask_sam2refined_dataset.v1",
+    "train_images": 1443,
+    "train_annotations": 4108,
+    "valid_images": 225,
+    "valid_annotations": 423,
+    "train_coco_sha256": "5adbd06d0980012cde7b23d2d8cd477df349c79a95e93b78a8ce73a17bdb3e3c",
+    "valid_coco_sha256": "97860af9614b52246fb3424d65a41091b9a1f4446f437d39c2a7ea2cb2231a0c"
+  },
+  "runtime": {
+    "loader": "RFDETR.from_checkpoint",
+    "explicit_medium_loader": "RFDETRSegMedium.from_checkpoint",
+    "explicit_large_loader": "RFDETRSegLarge.from_checkpoint",
+    "explicit_xlarge_loader": "RFDETRSegXLarge.from_checkpoint",
+    "input_color_order": "RGB",
+    "opencv_conversion": "cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)",
+    "nms": "none; RF-DETR DETR top-K postprocess plus confidence threshold",
+    "recommended_thresholds": {
+      "candidate_review": 0.2,
+      "conservative_single_frame_example": 0.5,
+      "xlarge_rosbag39_candidate": 0.4,
+      "large_rosbag39_candidate": 0.35,
+      "deployment": "not fixed; rosbag39 candidates were tuned on the same 39 frames and require independent calibration"
+    },
+    "python": "3.12.12",
+    "torch": "2.7.0+cu118",
+    "rfdetr": "1.8.3",
+    "opencv_python_headless": "4.10.0.84"
+  },
+  "legacy_small_color_ablation": {
+    "summary": "metadata/small_bgr_rgb_ablation_20260825.json",
+    "same_validation_set": "cam4_round4_r1mask_sam2refined_v1/valid",
+    "bgr_bbox_map_50_95": 0.4989680489434633,
+    "rgb_bbox_map_50_95": 0.511399188843832,
+    "bgr_mask_map_50_95": 0.49531221060481784,
+    "rgb_mask_map_50_95": 0.4766575915642174,
+    "decision": "Keep the existing Small BGR contract for reproducibility; do not migrate on this mixed result. Medium, Large, and XLarge remain RGB."
+  },
+  "a6000_fp16_compiled_benchmark": {
+    "contract": "single RGB image, source 1280x720, batch 1, native square model resolution, threshold 0.5, 10 warmup plus 50 timed iterations, CUDA synchronized per iteration, model.predict only, no file IO/rendering/ROS",
+    "medium": {
+      "mean_latency_ms": 131.04909083340317,
+      "p50_latency_ms": 137.8795220516622,
+      "p95_latency_ms": 169.3932832335121,
+      "p99_latency_ms": 204.63661680230868,
+      "fps_from_mean": 7.630728253363125,
+      "optimization_peak_allocated_mib": 597.5615234375,
+      "optimization_peak_reserved_mib": 642.0,
+      "steady_inference_peak_allocated_mib": 761.69677734375,
+      "steady_inference_peak_reserved_mib": 1170.0
+    },
+    "large": {
+      "mean_latency_ms": 138.2490230584517,
+      "p50_latency_ms": 146.1596575099975,
+      "p95_latency_ms": 159.3585125287063,
+      "p99_latency_ms": 199.86190875759348,
+      "fps_from_mean": 7.23332417023446,
+      "optimization_peak_allocated_mib": 734.98095703125,
+      "optimization_peak_reserved_mib": 926.0,
+      "steady_inference_peak_allocated_mib": 765.4931640625,
+      "steady_inference_peak_reserved_mib": 1454.0
+    },
+    "xlarge": {
+      "mean_latency_ms": 104.68464591074735,
+      "p50_latency_ms": 104.98931491747499,
+      "p95_latency_ms": 112.25143290357664,
+      "p99_latency_ms": 115.10528416838497,
+      "fps_from_mean": 9.55249923520385,
+      "optimization_peak_allocated_mib": 1081.78515625,
+      "optimization_peak_reserved_mib": 1372.0,
+      "steady_inference_peak_allocated_mib": 1049.68896484375,
+      "steady_inference_peak_reserved_mib": 2164.0
+    }
+  },
+  "rosbag39_rgb_evaluation": {
+    "report": "docs/ROSBAG39_EVALUATION_20260825.md",
+    "raw_small_medium": "metadata/rosbag39_small_medium_20260825.json",
+    "raw_large_xlarge": "metadata/rosbag39_large_xlarge_20260825.json",
+    "frames": 39,
+    "instances": 153,
+    "xlarge_bbox_map_50_95": 0.26741866301359096,
+    "xlarge_mask_map_50_95": 0.5241907647336052,
+    "xlarge_mask_map_75": 0.6298319907047795,
+    "xlarge_mask_mar_100": 0.6743589971550498,
+    "xlarge_interest4_candidate_threshold": 0.4,
+    "xlarge_interest4_precision_at_candidate": 0.953125,
+    "xlarge_interest4_recall_at_candidate": 0.8133333333333334,
+    "xlarge_interest4_f1_at_candidate": 0.8776978417266187,
+    "xlarge_interest4_fp_at_candidate": 3,
+    "xlarge_interest4_fn_at_candidate": 14,
+    "warning": "Bipolar and Bovie are absent. The threshold was selected on these same 39 frames and is provisional."
+  },
+  "warnings": [
+    "These are development models, not sealed-test-qualified final models.",
+    "The operating confidence threshold is not calibrated yet.",
+    "Frame-local instance IDs are not temporal track IDs.",
+    "Non-interest tool classes must remain in detector output and are filtered only downstream.",
+    "The rosbag39 diagnostic cannot evaluate Bipolar or Bovie because those tools are absent."
+  ]
+}

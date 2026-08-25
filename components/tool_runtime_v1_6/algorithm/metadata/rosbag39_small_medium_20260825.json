@@ -1,0 +1,473 @@
+{
+  "schema": "pnu.cam4.snapshot_checkpoint_evaluation.v1",
+  "gt_coco": "/home/miruware/PNU_CVLAB/choivy/sam3/experiments/arpa_h_rfdetr/results/rosbag_partial_snapshot_20260820_39frames/finalized39_gt_sam2refined.coco.json",
+  "images": 39,
+  "instances": 153,
+  "candidate_threshold": 0.001,
+  "predict_input_color_order": "rgb",
+  "ranking_metric": "segm.map_50_95",
+  "results": [
+    {
+      "checkpoint": "/home/miruware/PNU_CVLAB/choivy/sam3/experiments/arpa_h_rfdetr/training/runs/20260825_scale_medium_native_b16_e20/checkpoint_best_total.pth",
+      "checkpoint_epoch_zero_based": null,
+      "model_class": "RFDETRSegMedium",
+      "model_resolution": 432,
+      "device": "cuda",
+      "decode_color_order": "bgr",
+      "predict_input_color_order": "rgb",
+      "color_conversion": "cv2.COLOR_BGR2RGB",
+      "predictions": 7800,
+      "bbox": {
+        "map_50_95": 0.3663405814248499,
+        "map_50": 0.7569808575396549,
+        "map_75": 0.396897578996472,
+        "mar_100": 0.5529062944523471,
+        "per_class_ap_50_95": {
+          "Mosquito": 0.5796983189397009,
+          "Adson Forceps": 0.3952672534698745,
+          "Army-Navy Retractor": 0.31285507850695476,
+          "Thyroid Retractor": 0.17754167478286934
+        }
+      },
+      "segm": {
+        "map_50_95": 0.420998515037235,
+        "map_50": 0.7918677219499772,
+        "map_75": 0.39435455113622797,
+        "mar_100": 0.5690407183499289,
+        "per_class_ap_50_95": {
+          "Mosquito": 0.6361865932482321,
+          "Adson Forceps": 0.4220847498502626,
+          "Army-Navy Retractor": 0.1293069541882345,
+          "Thyroid Retractor": 0.4964157628622108
+        }
+      },
+      "mask_operating_points": {
+        "0.2": {
+          "score_threshold": 0.2,
+          "mask_match_iou": 0.5,
+          "predictions": 177,
+          "tp": 93,
+          "fp": 84,
+          "fn": 60,
+          "precision": 0.5254237288135594,
+          "recall": 0.6078431372549019,
+          "f1": 0.5636363636363636,
+          "fp_per_frame": 2.1538461538461537,
+          "fn_per_frame": 1.5384615384615385,
+          "frames_with_fp": 39,
+          "frames_with_fn": 39,
+          "per_class": {
+            "Scalpel": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 15,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Allis Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 16,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Mosquito": {
+              "gt": 37,
+              "tp": 34,
+              "fp": 17,
+              "fn": 3,
+              "precision": 0.6666666666666666,
+              "recall": 0.918918918918919,
+              "f1": 0.7727272727272727
+            },
+            "Adson Forceps": {
+              "gt": 38,
+              "tp": 34,
+              "fp": 10,
+              "fn": 4,
+              "precision": 0.7727272727272727,
+              "recall": 0.8947368421052632,
+              "f1": 0.8292682926829268
+            },
+            "Bipolar Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 22,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Bovie": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 1,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Army-Navy Retractor": {
+              "gt": 38,
+              "tp": 0,
+              "fp": 0,
+              "fn": 38,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "Thyroid Retractor": {
+              "gt": 40,
+              "tp": 25,
+              "fp": 3,
+              "fn": 15,
+              "precision": 0.8928571428571429,
+              "recall": 0.625,
+              "f1": 0.7352941176470589
+            }
+          }
+        },
+        "0.5": {
+          "score_threshold": 0.5,
+          "mask_match_iou": 0.5,
+          "predictions": 51,
+          "tp": 46,
+          "fp": 5,
+          "fn": 107,
+          "precision": 0.9019607843137255,
+          "recall": 0.3006535947712418,
+          "f1": 0.45098039215686275,
+          "fp_per_frame": 0.1282051282051282,
+          "fn_per_frame": 2.7435897435897436,
+          "frames_with_fp": 4,
+          "frames_with_fn": 39,
+          "per_class": {
+            "Scalpel": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Allis Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 1,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Mosquito": {
+              "gt": 37,
+              "tp": 31,
+              "fp": 3,
+              "fn": 6,
+              "precision": 0.9117647058823529,
+              "recall": 0.8378378378378378,
+              "f1": 0.8732394366197183
+            },
+            "Adson Forceps": {
+              "gt": 38,
+              "tp": 14,
+              "fp": 1,
+              "fn": 24,
+              "precision": 0.9333333333333333,
+              "recall": 0.3684210526315789,
+              "f1": 0.5283018867924528
+            },
+            "Bipolar Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Bovie": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Army-Navy Retractor": {
+              "gt": 38,
+              "tp": 0,
+              "fp": 0,
+              "fn": 38,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "Thyroid Retractor": {
+              "gt": 40,
+              "tp": 1,
+              "fp": 0,
+              "fn": 39,
+              "precision": 1.0,
+              "recall": 0.025,
+              "f1": 0.04878048780487805
+            }
+          }
+        }
+      },
+      "empty_frames": 0,
+      "empty_frame_fp": {
+        "0.2": {
+          "frames_with_fp": 0,
+          "fp_instances": 0,
+          "fp_frames_rate": 0.0,
+          "max_confidence": 0.0
+        },
+        "0.5": {
+          "frames_with_fp": 0,
+          "fp_instances": 0,
+          "fp_frames_rate": 0.0,
+          "max_confidence": 0.0
+        }
+      },
+      "prediction_coco": "/home/miruware/PNU_CVLAB/choivy/sam3/experiments/arpa_h_rfdetr/results/20260825_scale_rosbag39_rgb_predictions/20260825_scale_medium_native_b16_e20__checkpoint_best_total.coco.json"
+    },
+    {
+      "checkpoint": "/home/miruware/PNU_CVLAB/choivy/sam3/experiments/arpa_h_rfdetr/training/runs/20260825_scale_small_native_b16_e20/checkpoint_best_total.pth",
+      "checkpoint_epoch_zero_based": null,
+      "model_class": "RFDETRSegSmall",
+      "model_resolution": 384,
+      "device": "cuda",
+      "decode_color_order": "bgr",
+      "predict_input_color_order": "rgb",
+      "color_conversion": "cv2.COLOR_BGR2RGB",
+      "predictions": 3900,
+      "bbox": {
+        "map_50_95": 0.19687509324655847,
+        "map_50": 0.5091551244903159,
+        "map_75": 0.06067021132496131,
+        "mar_100": 0.3822812944523471,
+        "per_class_ap_50_95": {
+          "Mosquito": 0.3576170895419117,
+          "Adson Forceps": 0.17747668181370016,
+          "Army-Navy Retractor": 0.2027442258780109,
+          "Thyroid Retractor": 0.04966237575261122
+        }
+      },
+      "segm": {
+        "map_50_95": 0.2741196371163422,
+        "map_50": 0.5830245973522988,
+        "map_75": 0.20372883894093327,
+        "mar_100": 0.5229836415362732,
+        "per_class_ap_50_95": {
+          "Mosquito": 0.46751850981556664,
+          "Adson Forceps": 0.30941272783864726,
+          "Army-Navy Retractor": 0.17906026800445454,
+          "Thyroid Retractor": 0.14048704280670032
+        }
+      },
+      "mask_operating_points": {
+        "0.2": {
+          "score_threshold": 0.2,
+          "mask_match_iou": 0.5,
+          "predictions": 318,
+          "tp": 70,
+          "fp": 248,
+          "fn": 83,
+          "precision": 0.22012578616352202,
+          "recall": 0.45751633986928103,
+          "f1": 0.29723991507430997,
+          "fp_per_frame": 6.358974358974359,
+          "fn_per_frame": 2.128205128205128,
+          "frames_with_fp": 39,
+          "frames_with_fn": 39,
+          "per_class": {
+            "Scalpel": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Allis Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 19,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Mosquito": {
+              "gt": 37,
+              "tp": 34,
+              "fp": 58,
+              "fn": 3,
+              "precision": 0.3695652173913043,
+              "recall": 0.918918918918919,
+              "f1": 0.5271317829457365
+            },
+            "Adson Forceps": {
+              "gt": 38,
+              "tp": 35,
+              "fp": 53,
+              "fn": 3,
+              "precision": 0.3977272727272727,
+              "recall": 0.9210526315789473,
+              "f1": 0.5555555555555556
+            },
+            "Bipolar Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 114,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Bovie": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 3,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Army-Navy Retractor": {
+              "gt": 38,
+              "tp": 0,
+              "fp": 0,
+              "fn": 38,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "Thyroid Retractor": {
+              "gt": 40,
+              "tp": 1,
+              "fp": 1,
+              "fn": 39,
+              "precision": 0.5,
+              "recall": 0.025,
+              "f1": 0.047619047619047616
+            }
+          }
+        },
+        "0.5": {
+          "score_threshold": 0.5,
+          "mask_match_iou": 0.5,
+          "predictions": 76,
+          "tp": 49,
+          "fp": 27,
+          "fn": 104,
+          "precision": 0.6447368421052632,
+          "recall": 0.3202614379084967,
+          "f1": 0.4279475982532751,
+          "fp_per_frame": 0.6923076923076923,
+          "fn_per_frame": 2.6666666666666665,
+          "frames_with_fp": 23,
+          "frames_with_fn": 39,
+          "per_class": {
+            "Scalpel": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Allis Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 4,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Mosquito": {
+              "gt": 37,
+              "tp": 31,
+              "fp": 18,
+              "fn": 6,
+              "precision": 0.6326530612244898,
+              "recall": 0.8378378378378378,
+              "f1": 0.7209302325581395
+            },
+            "Adson Forceps": {
+              "gt": 38,
+              "tp": 18,
+              "fp": 2,
+              "fn": 20,
+              "precision": 0.9,
+              "recall": 0.47368421052631576,
+              "f1": 0.6206896551724138
+            },
+            "Bipolar Forceps": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 3,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": null,
+              "f1": 0.0
+            },
+            "Bovie": {
+              "gt": 0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "Army-Navy Retractor": {
+              "gt": 38,
+              "tp": 0,
+              "fp": 0,
+              "fn": 38,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "Thyroid Retractor": {
+              "gt": 40,
+              "tp": 0,
+              "fp": 0,
+              "fn": 40,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            }
+          }
+        }
+      },
+      "empty_frames": 0,
+      "empty_frame_fp": {
+        "0.2": {
+          "frames_with_fp": 0,
+          "fp_instances": 0,
+          "fp_frames_rate": 0.0,
+          "max_confidence": 0.0
+        },
+        "0.5": {
+          "frames_with_fp": 0,
+          "fp_instances": 0,
+          "fp_frames_rate": 0.0,
+          "max_confidence": 0.0
+        }
+      },
+      "prediction_coco": "/home/miruware/PNU_CVLAB/choivy/sam3/experiments/arpa_h_rfdetr/results/20260825_scale_rosbag39_rgb_predictions/20260825_scale_small_native_b16_e20__checkpoint_best_total.coco.json"
+    }
+  ]
+}

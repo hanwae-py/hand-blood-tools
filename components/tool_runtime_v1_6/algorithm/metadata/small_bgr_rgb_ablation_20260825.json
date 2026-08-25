@@ -1,0 +1,62 @@
+{
+  "schema": "pnu.cam4.rfdetrseg.small_color_ablation_summary.v1",
+  "date": "2026-08-25",
+  "purpose": "Preserve the legacy Small BGR contract while measuring whether an RGB migration is justified.",
+  "checkpoint": "experiments/arpa_h_rfdetr/training/runs/20260820_round5_resume_full_to_e20_noearlystop/checkpoint_best_regular.pth",
+  "architecture": "RFDETRSegSmall",
+  "checkpoint_epoch_zero_based": 13,
+  "evaluation_set": "cam4_round4_r1mask_sam2refined_v1/valid",
+  "images": 225,
+  "annotations": 423,
+  "candidate_threshold": 0.001,
+  "decode_color_order": "BGR",
+  "bgr_legacy": {
+    "predict_input_color_order": "BGR",
+    "conversion": "none",
+    "bbox_map_50_95": 0.4989680489434633,
+    "bbox_map_50": 0.7730821971090777,
+    "bbox_map_75": 0.5087127873942985,
+    "bbox_mar_100": 0.5469825833362381,
+    "segm_map_50_95": 0.49531221060481784,
+    "segm_map_50": 0.7785392674568933,
+    "segm_map_75": 0.6635608683777149,
+    "segm_mar_100": 0.5598424773722798,
+    "empty_frame_fp_at_0_2": 0,
+    "empty_frame_fp_at_0_5": 0
+  },
+  "rgb_candidate": {
+    "predict_input_color_order": "RGB",
+    "conversion": "cv2.COLOR_BGR2RGB",
+    "bbox_map_50_95": 0.511399188843832,
+    "bbox_map_50": 0.781206012655526,
+    "bbox_map_75": 0.6356403207077606,
+    "bbox_mar_100": 0.5870971452473073,
+    "segm_map_50_95": 0.4766575915642174,
+    "segm_map_50": 0.692024850836118,
+    "segm_map_75": 0.602207177211296,
+    "segm_mar_100": 0.5974191472922259,
+    "empty_frame_fp_at_0_2": 0,
+    "empty_frame_fp_at_0_5": 0
+  },
+  "rgb_minus_bgr": {
+    "bbox_map_50_95": 0.012431139900368704,
+    "bbox_map_50": 0.008123815546448365,
+    "bbox_map_75": 0.12692738981346207,
+    "bbox_mar_100": 0.040114561971069236,
+    "segm_map_50_95": -0.01865461904060043,
+    "segm_map_50": -0.08651441662077532,
+    "segm_map_75": -0.06135369117641836,
+    "segm_mar_100": 0.03757666991994613
+  },
+  "decision": {
+    "migrate_small_to_rgb_now": false,
+    "legacy_small_checkpoint_color_order": "BGR",
+    "reason": "RGB improved bbox mAP and mask recall, but reduced overall mask mAP50:95 and mask AP50/AP75. Preserve both reproducibility paths and defer migration until an independent, class-balanced set confirms the trade-off.",
+    "medium_large_xlarge_checkpoint_color_order": "RGB"
+  },
+  "limitations": [
+    "This is a development validation set, not a sealed independent test.",
+    "Mosquito and Army-Navy each have only one validation instance, so macro category averages are unstable.",
+    "The ablation changes only channel order; checkpoint weights and all evaluation settings are identical."
+  ]
+}

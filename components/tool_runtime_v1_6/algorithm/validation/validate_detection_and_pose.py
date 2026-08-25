@@ -57,7 +57,7 @@ def main() -> None:
     )
     detector = SurgicalToolDetector(
         DetectorConfig(
-            ROOT / "model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth",
+            ROOT / "model/cam4_rfdetr_seg_small_regular_resume_best.pth",
             ROOT / "model/ontology.json",
         )
     )

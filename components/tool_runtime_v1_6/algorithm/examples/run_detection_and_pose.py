@@ -39,8 +39,13 @@ def main() -> None:
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--aligned-depth-npy", type=Path, required=True)
     parser.add_argument("--camera-pose-config", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, default=ROOT / "model/cam4_rfdetr_seg_small_regular_resume_e13_best.pth")
+    parser.add_argument("--checkpoint", type=Path, default=ROOT / "model/cam4_rfdetr_seg_small_regular_resume_best.pth")
     parser.add_argument("--ontology", type=Path, default=ROOT / "model/ontology.json")
+    parser.add_argument(
+        "--model-size",
+        choices=("small", "medium", "large", "xlarge"),
+        default="small",
+    )
     parser.add_argument("--color-order", choices=("RGB", "BGR"), required=True)
     parser.add_argument("--threshold", type=float, default=0.3)
     parser.add_argument("--frame-key")
@@ -73,6 +78,7 @@ def main() -> None:
         DetectorConfig(
             checkpoint_path=args.checkpoint,
             ontology_path=args.ontology,
+            model_size=args.model_size,
             confidence_threshold=args.threshold,
             optimize=not args.no_optimize,
         )
@@ -96,4 +102,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

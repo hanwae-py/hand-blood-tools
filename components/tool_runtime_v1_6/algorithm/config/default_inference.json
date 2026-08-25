@@ -1,9 +1,27 @@
 {
   "schema": "pnu.surgical_tool.inference_config.v1",
+  "model_size": "small",
   "architecture": "RFDETRSegSmall",
   "confidence_threshold": 0.3,
   "enable_class_agnostic_nms": true,
   "class_agnostic_nms_iou": 0.8,
+  "workspace_roi": {
+    "enabled": false,
+    "polygon_norm_xy": [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+    "minimum_mask_overlap": 0.5,
+    "require_mask_centroid_inside": true
+  },
+  "temporal_class_smoothing": {
+    "enabled": false,
+    "history_size": 7,
+    "minimum_switch_frames": 3,
+    "switch_score_margin": 0.2,
+    "minimum_mask_iou": 0.1,
+    "minimum_bbox_iou": 0.2,
+    "maximum_centroid_distance_norm": 0.06,
+    "maximum_mask_area_ratio": 3.0,
+    "max_missed_frames": 3
+  },
   "checkpoint_input_color_order": "BGR",
   "optimize": true,
   "jit_compile": true,

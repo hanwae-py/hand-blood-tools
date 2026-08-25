@@ -6,7 +6,7 @@
 - NVIDIA GPU 모델과 VRAM(없으면 없다고 명시)
 - OS, Python, NVIDIA driver, CUDA
 - 입력 해상도와 요구 FPS
-- CAM4/tray RGB 색상 순서
+- CAM4 Mayo/CAM3 tray RGB 색상 순서와 카메라별 ROI polygon
 - 각 view의 RGB-aligned metric depth 제공 가능 여부
 - 각 view의 공식 color calibration과 support-plane 제공 방식
 
@@ -33,4 +33,3 @@
 - inference/pose/end-to-end p50·p95·FPS
 - peak GPU memory, RAM
 - detection class/mask sanity와 pose validity 분포
-
