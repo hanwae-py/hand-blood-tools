@@ -21,7 +21,7 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 - 기본 confidence threshold: 0.30
 - Small: 기존 BGR 입력과 class-agnostic bbox NMS IoU 0.80 유지
 - Medium/Large/XLarge: RGB 입력, 별도 NMS 없음
-- CAM4 Mayo polygon 기반 mask-overlap ROI 필터
+- rosbag/live 화각별 ROI 프로파일과 mask-overlap ROI 필터
 - class와 무관한 mask/bbox association 및 최근 7-frame confidence-weighted
   class smoothing(3-frame 전환 확인)
 - CAM3는 8월 tray camera이나 영상 미수령 상태이므로 ROI 비활성화
@@ -41,3 +41,9 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 (`bash scripts/run_perception_ingress.sh`) 실행 후:
 
     TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh
+
+실시간 ROS 처리에서는 현재 설치 화각에 맞춰 보정한 프로파일을 명시한다.
+미지정 기본값 `TOOL_ROI_PROFILE=none`은 ROI 필터를 적용하지 않는다.
+
+    TOOL_MODEL_SIZE=xlarge TOOL_ROI_PROFILE=cam4_live_room1_mayo_20260825 \
+      bash scripts/run_tool_v16.sh cam_4

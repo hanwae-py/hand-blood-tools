@@ -3,10 +3,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TOOL_MODEL_SIZE_OVERRIDE="${TOOL_MODEL_SIZE:-}"
 TOOL_CONFIDENCE_THRESHOLD_OVERRIDE="${TOOL_CONFIDENCE_THRESHOLD:-}"
+TOOL_ROI_PROFILE_OVERRIDE="${TOOL_ROI_PROFILE:-}"
 source "${ROOT}/scripts/perception_runtime_env.sh" local-fast
 source "${ROOT}/scripts/select_cam.sh"
 if [[ -n "${TOOL_MODEL_SIZE_OVERRIDE}" ]]; then
   TOOL_MODEL_SIZE="${TOOL_MODEL_SIZE_OVERRIDE}"
+fi
+if [[ -n "${TOOL_ROI_PROFILE_OVERRIDE}" ]]; then
+  TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE_OVERRIDE}"
 fi
 TOOL="${ROOT}/components/tool_runtime_v1_6"
 CAM="cam_4"
@@ -14,6 +18,7 @@ CAM_OVERRIDES=()
 PARAM_FILE_ARGS=()
 
 TOOL_MODEL_SIZE="${TOOL_MODEL_SIZE:-small}"
+TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE:-none}"
 case "${TOOL_MODEL_SIZE}" in
   small)
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_SMALL:-${TOOL_CHECKPOINT:-}}"
@@ -75,6 +80,22 @@ configure_tool_camera() {
     return 2
   fi
   PARAM_FILE_ARGS=(--params-file "${parameter_file}")
+  if [[ "${TOOL_ROI_PROFILE}" != "none" ]]; then
+    if [[ ! "${TOOL_ROI_PROFILE}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+      echo "Invalid TOOL_ROI_PROFILE name: ${TOOL_ROI_PROFILE}" >&2
+      return 2
+    fi
+    if [[ "${TOOL_ROI_PROFILE}" != "${camera_profile}_"* ]]; then
+      echo "ROI profile ${TOOL_ROI_PROFILE} does not match ${camera_profile}" >&2
+      return 2
+    fi
+    local roi_profile_file="${TOOL}/ros2_ws/src/pnu_surgical_perception/config/roi_profiles/${TOOL_ROI_PROFILE}.yaml"
+    if [[ ! -f "${roi_profile_file}" ]]; then
+      echo "Missing Tool ROI profile: ${roi_profile_file}" >&2
+      return 2
+    fi
+    PARAM_FILE_ARGS+=(--params-file "${roi_profile_file}")
+  fi
   CAM_OVERRIDES=(
     -r "__node:=native_depth_tool_pose_${CAM}"
     -p "camera:=${CAM}"
@@ -89,7 +110,7 @@ configure_tool_camera() {
 }
 
 if [[ "${1:-}" == "help" || "${1:-}" == "--help" ]]; then
-  echo "usage: TOOL_MODEL_SIZE=small|medium|large|xlarge bash scripts/run_tool_v16.sh [cam_3|cam_4]" >&2
+  echo "usage: TOOL_MODEL_SIZE=small|medium|large|xlarge TOOL_ROI_PROFILE=none|<camera_profile> bash scripts/run_tool_v16.sh [cam_3|cam_4]" >&2
   set +u
   source "/opt/ros/${ROS_DISTRO}/setup.bash"
   set -u
@@ -102,6 +123,7 @@ if is_camera_selector "${1:-}"; then
 else
   configure_tool_camera "${CAM}"
 fi
+echo "Tool ROI profile: ${TOOL_ROI_PROFILE}" >&2
 set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${TOOL}/ros2_ws/install/setup.bash"

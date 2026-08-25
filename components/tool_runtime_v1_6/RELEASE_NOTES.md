@@ -30,8 +30,11 @@
   acceptance without clipping accepted tool masks.
 - Added class-independent mask/bbox/centroid temporal association and a
   confidence-weighted recent-history class switch hysteresis.
-- Enabled a provisional 2026-08-14 Mayo ROI for CAM4. CAM3 tray ROI remains
-  disabled pending delivery of August CAM3 images.
+- Added explicit per-view ROI profile selection for both rosbag replay and
+  live ROS processing. The reference runner selects the provisional
+  `cam4_20260814_mayo` profile; general live runs default to `none` until a
+  matching installation profile is calibrated. CAM3 tray ROI remains disabled
+  pending delivery of August CAM3 images.
 
 Input topics, native `16UC1 compressedDepth` decode, depth-to-color
 registration, and `PLANAR_4DOF_WITH_NORMAL_PRIOR` pose semantics are unchanged

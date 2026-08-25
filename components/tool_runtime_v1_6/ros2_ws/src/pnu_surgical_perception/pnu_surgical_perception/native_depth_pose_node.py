@@ -304,6 +304,7 @@ class NativeDepthPoseNode(Node):
             f'depth={self._depth_topic}, require_depth={self._require_depth}, '
             f'extrinsics={self._extrinsics_topic}, '
             f'workspace_zone={self._workspace_zone}, '
+            f'workspace_roi_profile={self._workspace_roi_profile}, '
             f'max_delta_ns={self._maximum_stamp_delta_ns}, '
             f'publish_tool_tf={self._publish_tool_tf}'
         )
@@ -317,6 +318,7 @@ class NativeDepthPoseNode(Node):
             'cam_4': 'mayo',
         }.get(camera, camera)
         self.declare_parameter('workspace_zone', default_workspace_zone)
+        self.declare_parameter('workspace_roi_profile', 'none')
         prefix = f'/synced/{camera}'
         out = f'/perception/{camera}/tool'
         self.declare_parameter(
@@ -465,6 +467,11 @@ class NativeDepthPoseNode(Node):
         self._workspace_zone = str(value('workspace_zone')).strip()
         if not self._workspace_zone:
             raise ValueError('workspace_zone must not be empty')
+        self._workspace_roi_profile = str(
+            value('workspace_roi_profile')
+        ).strip()
+        if not self._workspace_roi_profile:
+            raise ValueError('workspace_roi_profile must not be empty')
         self._maximum_stamp_delta_ns = int(value('maximum_stamp_delta_ns'))
         self._sync_queue_size = int(value('sync_queue_size'))
         self._latest_frame_only = bool(value('latest_frame_only'))
@@ -1204,6 +1211,7 @@ class NativeDepthPoseNode(Node):
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
                 'workspace_roi_enabled': self._workspace_roi_enabled,
                 'workspace_roi_name': self._workspace_zone,
+                'workspace_roi_profile': self._workspace_roi_profile,
                 'temporal_class_smoothing_enabled': (
                     self._temporal_class_smoothing_enabled
                 ),
@@ -1406,7 +1414,7 @@ class NativeDepthPoseNode(Node):
                 anchor = tuple(int(value) for value in polygon[0])
                 cv2.putText(
                     output,
-                    f'ROI:{self._workspace_zone}',
+                    f'ROI:{self._workspace_roi_profile}',
                     (anchor[0], max(18, anchor[1] - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.52,
@@ -1601,6 +1609,8 @@ class NativeDepthPoseNode(Node):
                 'metric_calibration_verified': (
                     not self._additional_status_flags
                 ),
+                'workspace_roi_enabled': self._workspace_roi_enabled,
+                'workspace_roi_profile': self._workspace_roi_profile,
                 'available_pose_mode': 'PLANAR_4DOF_WITH_NORMAL_PRIOR',
                 'full_6d_available': False,
                 'tf_topic': '/tf',

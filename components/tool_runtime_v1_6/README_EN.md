@@ -22,7 +22,7 @@ helpers used by Hand and Blood.
 - Default confidence threshold: 0.30
 - Small: legacy BGR input and class-agnostic bbox NMS IoU 0.80
 - Medium/Large/XLarge: RGB input and no additional NMS
-- Mask-overlap workspace ROI filtering for the CAM4 Mayo stand
+- Per-view rosbag/live ROI profiles with mask-overlap workspace filtering
 - Class-independent mask/bbox association and confidence-weighted recent
   class smoothing (three-frame switch confirmation)
 - CAM3 is the August tray camera; its ROI remains disabled until CAM3 August
@@ -43,3 +43,9 @@ From the repository root, after CAM4 ingress is running
 (`bash scripts/run_perception_ingress.sh`):
 
     TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh
+
+Live processing defaults to `TOOL_ROI_PROFILE=none`. After creating a profile
+for the current fixed-camera view, select it explicitly:
+
+    TOOL_MODEL_SIZE=xlarge TOOL_ROI_PROFILE=cam4_live_room1_mayo_20260825 \
+      bash scripts/run_tool_v16.sh cam_4

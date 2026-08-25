@@ -26,18 +26,18 @@
     enable_class_agnostic_nms: true
     class_agnostic_nms_iou: 0.8
 
-    # Provisional Mayo-stand polygon measured on the 2026-08-14 CAM4 bag.
-    # Recalibrate if the fixed camera or stand moves.
-    workspace_roi_enabled: true
+    # The matching dataset ROI is loaded as a separate launch profile.
+    workspace_roi_profile: "none"
+    workspace_roi_enabled: false
     workspace_roi_polygon_norm_xy:
-      - 0.402
-      - 0.215
-      - 0.698
-      - 0.197
-      - 0.705
-      - 0.651
-      - 0.409
-      - 0.663
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 1.0
+      - 1.0
+      - 0.0
+      - 1.0
     workspace_roi_minimum_mask_overlap: 0.5
     workspace_roi_require_mask_centroid_inside: true
     temporal_class_smoothing_enabled: true

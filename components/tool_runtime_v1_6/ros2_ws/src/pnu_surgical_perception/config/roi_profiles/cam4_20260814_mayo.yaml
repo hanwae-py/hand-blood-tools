@@ -1,0 +1,18 @@
+/**:
+  ros__parameters:
+    # Provisional polygon measured on the 2026-08-14 CAM4 reference rosbag.
+    # Do not reuse it when the camera or Mayo stand geometry differs.
+    workspace_zone: "mayo"
+    workspace_roi_profile: "cam4_20260814_mayo"
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+      - 0.402
+      - 0.215
+      - 0.698
+      - 0.197
+      - 0.705
+      - 0.651
+      - 0.409
+      - 0.663
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true

@@ -48,6 +48,20 @@ case "${MODEL_SIZE}" in
     ;;
 esac
 MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD:-${MODEL_DEFAULT_THRESHOLD}}"
+ROI_PROFILE="${TOOL_ROI_PROFILE:-cam4_20260814_mayo}"
+ROI_PROFILE_ARGS=()
+if [[ "${ROI_PROFILE}" != "none" ]]; then
+  if [[ ! "${ROI_PROFILE}" =~ ^cam4_[a-z0-9_-]+$ ]]; then
+    echo "CAM4 ROI profile must be none or start with cam4_: ${ROI_PROFILE}" >&2
+    exit 2
+  fi
+  ROI_PROFILE_FILE="${BUNDLE_ROOT}/ros2_ws/src/pnu_surgical_perception/config/roi_profiles/${ROI_PROFILE}.yaml"
+  if [[ ! -f "${ROI_PROFILE_FILE}" ]]; then
+    echo "Missing CAM4 ROI profile: ${ROI_PROFILE_FILE}" >&2
+    exit 2
+  fi
+  ROI_PROFILE_ARGS=(--params-file "${ROI_PROFILE_FILE}")
+fi
 
 for required in "${ROS_SETUP}" "${WORKSPACE_SETUP}" "${CHECKPOINT}" "${ONTOLOGY}" "${PARAMETERS}"; do
   if [[ ! -e "${required}" ]]; then
@@ -61,10 +75,12 @@ source "${ROS_SETUP}"
 source "${WORKSPACE_SETUP}"
 set -u
 export PYTHONPATH="${ALGORITHM_SOURCE}${PYTHONPATH:+:${PYTHONPATH}}"
+echo "Tool ROI profile: ${ROI_PROFILE}" >&2
 
 exec ros2 run pnu_surgical_perception native_depth_tool_pose --ros-args \
   -r __node:=native_depth_tool_pose_cam_4 \
   --params-file "${PARAMETERS}" \
+  "${ROI_PROFILE_ARGS[@]}" \
   -p "algorithm_python_path:=${ALGORITHM_SOURCE}" \
   -p "checkpoint:=${CHECKPOINT}" \
   -p "ontology:=${ONTOLOGY}" \

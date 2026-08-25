@@ -30,6 +30,7 @@
     # CAM3 is the tray camera from the August configuration, but its August
     # image data has not been delivered. Keep spatial filtering disabled until
     # a tray polygon is calibrated from an actual CAM3 frame.
+    workspace_roi_profile: "none"
     workspace_roi_enabled: false
     workspace_roi_polygon_norm_xy:
       - 0.0

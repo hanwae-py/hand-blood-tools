@@ -72,9 +72,19 @@ python examples/run_detection_and_pose.py \
 
 ## 6. ROI와 temporal class smoothing
 
-ROS runtime에서는 `workspace_roi_*`와 `temporal_class_*` parameter로 활성화한다. CAM4는 Mayo
-stand camera이며 `cam4_live_native_pose.yaml`에 2026-08-14 기준 provisional polygon이 있다.
-CAM3는 8월 tray camera지만 영상이 아직 전달되지 않아 `workspace_roi_enabled: false`다.
+ROS runtime에서는 `workspace_roi_*`와 `temporal_class_*` parameter로 활성화한다. 특정 polygon은
+카메라 기본 YAML이 아니라 `config/roi_profiles/`에 보관한다. rosbag과 live ROS는 같은 형식을
+사용하지만, 화각이 다르면 반드시 서로 다른 프로파일을 선택한다.
+
+```bash
+TOOL_MODEL_SIZE=xlarge \
+TOOL_ROI_PROFILE=cam4_20260814_mayo \
+bash scripts/run_tool_v16.sh cam_4
+```
+
+위 프로파일은 해당 2026-08-14 CAM4 화각에만 유효하다. 실제 live 설치 화각이 다르면 별도의
+`cam4_live_room1_mayo_20260825.yaml` 같은 파일을 만들어 선택한다. live 기본값은 `none`이며 CAM3는 8월 tray
+영상이 아직 전달되지 않아 보정 프로파일이 없다.
 
 ROI polygon은 source image normalized `(x, y)`를 평평한 배열로 기록한다. 카메라나 작업대가
 이동하면 반드시 다시 보정한다. 이 필터는 inference 후 적용되므로 accepted mask의 geometry는

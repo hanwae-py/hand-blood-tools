@@ -39,9 +39,11 @@ TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh cam_4
 
 Tool postprocessing supports a camera-calibrated workspace polygon and
 class-independent mask/bbox association with temporal class smoothing. CAM4
-is the Mayo-stand camera and has a provisional ROI from the 2026-08-14 bag.
-CAM3 is the August tray camera; its ROI stays disabled until CAM3 August image
-data is received and calibrated.
+is the Mayo-stand camera and CAM3 is the August tray camera. Dataset and live
+camera views select separate ROI profile YAML files with `TOOL_ROI_PROFILE`.
+The bundled `cam4_20260814_mayo` profile is provisional and must not be reused
+for a different live view without calibration. CAM3 ROI stays disabled until
+CAM3 August image data is received and calibrated.
 
 Blood:
 [RF-DETR Seg-Small checkpoint](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view).
@@ -213,7 +215,8 @@ bash scripts/run_final_overlay.sh
 - Class-agnostic NMS can suppress overlapping boxes even when their class IDs
   differ.
 - Workspace ROI coordinates are camera-installation specific. Recalibrate
-  after moving the camera, Mayo stand, or tray.
+  after moving the camera, Mayo stand, or tray. Live Tool runs default to
+  `TOOL_ROI_PROFILE=none`; explicitly select the calibrated live profile.
 - Valid Tool pose and Hand 3D both need confirmed metric scale and RGB-depth
   alignment; the current run defaults leave those flags false.
 - Blood currently publishes 2D masks plus an optional centroid depth sample.
