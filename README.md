@@ -1,7 +1,7 @@
 # Surgical Perception System v1
 
-Portable source bundle for the three perception algorithms and their ROS 2
-take-turn controller.
+Portable source bundle for the three perception algorithms, a hand-state
+postprocessor handoff, and their ROS 2 take-turn controller.
 
 ## Included components
 
@@ -9,6 +9,7 @@ take-turn controller.
 |---|---|---|
 | `components/tool_runtime_v1_6` | Tool v1.6 | Selectable RF-DETR Seg Small/Medium/Large/XLarge Tool segmentation; optional depth sample + planar 4-DOF-with-normal-prior pose |
 | `components/hand_keypoints_ros` | current | MediaPipe hand keypoints + depth-derived hand pose |
+| `components/hand_open_close` | offline-tested handoff | ROS-independent anatomical `OPEN`/`CLOSED` rule from 21 hand keypoints; proposed ROS adaptation is not yet tested |
 | `components/blood_detection` | current | RF-DETR Seg-Small 2D Blood mask/blue overlay; optional centroid depth |
 | `components/coordinator_ws` | current | `DETECT_TOOL`, `DETECT_HAND`, `DETECT_BLOOD`, `STOP` lifecycle selector |
 
