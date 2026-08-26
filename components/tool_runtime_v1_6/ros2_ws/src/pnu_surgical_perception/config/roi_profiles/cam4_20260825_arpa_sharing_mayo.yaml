@@ -1,0 +1,18 @@
+/**:
+  ros__parameters:
+    # Drawn directly by the operator on the 2026-08-25 CAM4 Mayo view.
+    # Recalibrate if the fixed camera or Mayo stand moves.
+    workspace_zone: "mayo"
+    workspace_roi_profile: "cam4_20260825_arpa_sharing_mayo"
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+      - 0.430469
+      - 0.197222
+      - 0.693750
+      - 0.188889
+      - 0.705469
+      - 0.695833
+      - 0.439844
+      - 0.733333
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true

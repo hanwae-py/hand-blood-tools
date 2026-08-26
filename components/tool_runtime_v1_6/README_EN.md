@@ -16,7 +16,8 @@ helpers used by Hand and Blood.
 ## v1.6 detector
 
 - Checkpoint: selectable Small `cam4_rfdetr_seg_small_regular_resume_best.pth`,
-  Medium `medium_best.pth`, Large `large_best.pth`, or XLarge `xlarge_best.pth`
+  Medium `medium_best.pth`, Large `large_best.pth`, or XLarge
+  `checkpoint_selected_external_0825_holdout_conf030.pth`
 - Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   Set `TOOL_MODEL_SIZE` and the matching checkpoint path in `config/system.env`.
 - Default confidence threshold: 0.30
@@ -25,8 +26,7 @@ helpers used by Hand and Blood.
 - Per-view rosbag/live ROI profiles with mask-overlap workspace filtering
 - Class-independent mask/bbox association and confidence-weighted recent
   class smoothing (three-frame switch confirmation)
-- CAM3 is the August tray camera; its ROI remains disabled until CAM3 August
-  images are delivered and calibrated
+- CAM3 tray and CAM4 Mayo ROI profiles for the 2026-08-25 Arpa RGB views
 - Pose-axis debug overlay: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## Build

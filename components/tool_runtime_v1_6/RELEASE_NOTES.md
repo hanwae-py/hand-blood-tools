@@ -39,3 +39,14 @@
 Input topics, native `16UC1 compressedDepth` decode, depth-to-color
 registration, and `PLANAR_4DOF_WITH_NORMAL_PRIOR` pose semantics are unchanged
 from the previous runtime.
+
+## 2026-08-26 selected XLarge checkpoint and August RGB profiles
+
+- Updated the selectable XLarge artifact to
+  `checkpoint_selected_external_0825_holdout_conf030.pth` (SHA-256
+  `694f92197ab0d1441eafc8fa4ecaafc29b16f6893b23476e9934e79905d67aeb`).
+- Added separate provisional ROI profiles for the 2026-08-25 CAM3 tray and
+  CAM4 Mayo RGB views. They are dataset/view-specific and are not live-camera
+  calibration substitutes.
+- Added reproducible RGB-video and native-depth MCAP evaluators. The latter
+  reports constrained planar pose validity, not unconstrained 6D accuracy.

@@ -10,8 +10,9 @@
 5. P_obs는 CAD origin, TCP, grasp point로 변환되지 않는다.
 6. 현재 pose는 constrained planar 4DoF이며 unconstrained full 6D가 아니다.
 7. CAM4 Mayo와 CAM3 tray의 ROI, calibration, plane, frame name은 서로 별개다.
-8. 현재 model/ROI는 CAM4 Mayo 데이터에서만 검토되었고 CAM3 tray readiness는
-   `NOT VALIDATED`다. CAM3 8월 영상은 아직 미수령이다.
+8. 2026-08-25 CAM3 tray/CAM4 Mayo RGB에서 ROI와 prediction consistency를 검토했지만
+   annotation ground truth가 없어 정확도는 `NOT VALIDATED`다. CAM3 depth/calibration이 없어
+   CAM3 pose readiness도 `NOT VALIDATED`다.
 9. Hand Pose와 Blood Detection 및 세 알고리즘의 자원 경합은 범위 밖이다.
 10. native 1280x720 registration은 추가 CPU 비용이 있으므로 목표 장비에서 strict latency를
     다시 측정해야 한다.

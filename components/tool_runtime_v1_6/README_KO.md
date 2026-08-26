@@ -15,7 +15,8 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 ## v1.6 검출기
 
 - 체크포인트: Small `cam4_rfdetr_seg_small_regular_resume_best.pth`,
-  Medium `medium_best.pth`, Large `large_best.pth`, XLarge `xlarge_best.pth` 중 선택
+  Medium `medium_best.pth`, Large `large_best.pth`, XLarge
+  `checkpoint_selected_external_0825_holdout_conf030.pth` 중 선택
 - 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   받은 `.pth` 경로와 `TOOL_MODEL_SIZE`를 `config/system.env`에 설정한다.
 - 기본 confidence threshold: 0.30
@@ -24,7 +25,7 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 - rosbag/live 화각별 ROI 프로파일과 mask-overlap ROI 필터
 - class와 무관한 mask/bbox association 및 최근 7-frame confidence-weighted
   class smoothing(3-frame 전환 확인)
-- CAM3는 8월 tray camera이나 영상 미수령 상태이므로 ROI 비활성화
+- 2026-08-25 Arpa RGB용 CAM3 tray/CAM4 Mayo ROI 프로파일 포함
 - pose-axis 디버그 오버레이: `/perception/cam_4/tool/pose_overlay/compressed`
 
 ## 빌드

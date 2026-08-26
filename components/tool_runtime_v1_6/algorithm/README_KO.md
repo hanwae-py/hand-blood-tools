@@ -65,8 +65,8 @@ ROS `compressedDepth` 복원과 timestamp tolerance 검사는 제공 utility로 
 subscription, queue와 one-to-one pairing 정책은 transport adapter가 소유한다.
 
 CAM4는 Mayo stand camera이고 CAM3는 8월 tray camera다. 각각 자기 ROI, calibration,
-support-plane 설정과 frame name을 사용해야 한다. CAM3 8월 영상은 아직 미수령이므로 tray ROI는
-보정 전까지 비활성화한다.
+support-plane 설정과 frame name을 사용해야 한다. 2026-08-25 Arpa RGB 영상용 CAM3 tray와
+CAM4 Mayo ROI는 각각 별도 프로파일로 제공한다. 실제 설치 화각이 다르면 새 프로파일을 보정한다.
 동일 checkpoint를 쓰더라도 이 geometry를 공유하면 안 된다.
 
 ## 권장 읽기 순서

@@ -12,6 +12,7 @@
 - [x] 합성 pose test와 내부 frame-99 회귀 test
 - [x] CAM4 내부 realtime 진단 결과
 - [x] 임상 원본·전체 dataset·ROS·Hand/Blood 제외
+- [x] 2026-08-25 CAM3/CAM4 RGB 수령 및 view별 provisional ROI/후처리 검토
 
 ## KAIST에 먼저 확인할 것
 
@@ -31,7 +32,7 @@
 - [ ] NUC clean install 및 checksum 검증
 - [ ] NUC detection/pose acceptance와 p50/p95/FPS 기록
 - [ ] 실제 CAM4 synchronized input 정확도 검증
-- [ ] CAM3 8월 tray 영상 수령 및 ROI 보정·검증
+- [ ] CAM3 tray depth/calibration 수령 및 pose/정확도 검증
 - [ ] 수신자/담당자/버전/전달일 기록
 
 ROS 통신은 현장 세팅 이후 별도 통합 전달본에서 다룬다.

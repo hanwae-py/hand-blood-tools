@@ -43,7 +43,7 @@ PYTHONPATH=src python3 validation/validate_native_depth_registration.py
 ```bash
 python examples/run_detection.py \
   --image /path/to/input.jpg \
-  --checkpoint /path/to/xlarge_best.pth \
+  --checkpoint /path/to/checkpoint_selected_external_0825_holdout_conf030.pth \
   --model-size xlarge \
   --color-order BGR \
   --output-json detection.json \
@@ -59,7 +59,7 @@ Medium/Large/XLarge의 RGB 계약에 맞춰 정확히 한 번 변환한다.
 ```bash
 python examples/run_detection_and_pose.py \
   --image /path/to/input.jpg \
-  --checkpoint /path/to/xlarge_best.pth \
+  --checkpoint /path/to/checkpoint_selected_external_0825_holdout_conf030.pth \
   --model-size xlarge \
   --aligned-depth-npy /path/to/aligned_depth_m.npy \
   --camera-pose-config /path/to/camera_pose_config.json \
@@ -84,7 +84,9 @@ bash scripts/run_tool_v16.sh cam_4
 
 위 프로파일은 해당 2026-08-14 CAM4 화각에만 유효하다. 실제 live 설치 화각이 다르면 별도의
 `cam4_live_room1_mayo_20260825.yaml` 같은 파일을 만들어 선택한다. live 기본값은 `none`이며 CAM3는 8월 tray
-영상이 아직 전달되지 않아 보정 프로파일이 없다.
+2026-08-25 Arpa RGB 영상에는 `cam3_20260825_arpa_sharing_tray`와
+`cam4_20260825_arpa_sharing_mayo` 프로파일을 사용한다. 이 프로파일을 다른 live 화각에
+그대로 재사용해서는 안 된다.
 
 ROI polygon은 source image normalized `(x, y)`를 평평한 배열로 기록한다. 카메라나 작업대가
 이동하면 반드시 다시 보정한다. 이 필터는 inference 후 적용되므로 accepted mask의 geometry는

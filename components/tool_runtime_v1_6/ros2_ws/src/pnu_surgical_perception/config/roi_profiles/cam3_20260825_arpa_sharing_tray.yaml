@@ -1,0 +1,18 @@
+/**:
+  ros__parameters:
+    # Provisional tray boundary reviewed across the three Arpa_sharing_rgb
+    # sessions. Recalibrate if the CAM3 installation moves.
+    workspace_zone: "tray"
+    workspace_roi_profile: "cam3_20260825_arpa_sharing_tray"
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+      - 0.245
+      - 0.305
+      - 0.725
+      - 0.300
+      - 0.760
+      - 0.860
+      - 0.200
+      - 0.860
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true

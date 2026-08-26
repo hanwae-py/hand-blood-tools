@@ -32,8 +32,8 @@
     },
     "xlarge": {
       "architecture": "RFDETRSegXLarge",
-      "checkpoint_filename": "xlarge_best.pth",
-      "checkpoint_sha256": "504d6fcb3f01f4f7fa678147a518f97f9f81a9f84962f382df6041ddcdbbc577",
+      "checkpoint_filename": "checkpoint_selected_external_0825_holdout_conf030.pth",
+      "checkpoint_sha256": "694f92197ab0d1441eafc8fa4ecaafc29b16f6893b23476e9934e79905d67aeb",
       "checkpoint_input_color_order": "RGB",
       "enable_class_agnostic_nms": false,
       "native_resolution": 624,

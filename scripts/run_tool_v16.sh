@@ -45,7 +45,7 @@ case "${TOOL_MODEL_SIZE}" in
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_XLARGE:-}"
     TOOL_CHECKPOINT_COLOR_ORDER="RGB"
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="false"
-    TOOL_MODEL_VERSION="cam4-rfdetr-seg-xlarge-20260825-best"
+    TOOL_MODEL_VERSION="rfdetr-seg-xlarge-selected-external-0825-conf030"
     TOOL_MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   *)

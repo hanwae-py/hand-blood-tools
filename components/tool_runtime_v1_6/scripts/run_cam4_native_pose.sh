@@ -36,10 +36,10 @@ case "${MODEL_SIZE}" in
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   xlarge)
-    CHECKPOINT="${TOOL_CHECKPOINT_XLARGE:-${BUNDLE_ROOT}/algorithm/model/xlarge_best.pth}"
+    CHECKPOINT="${TOOL_CHECKPOINT_XLARGE:-${BUNDLE_ROOT}/algorithm/model/checkpoint_selected_external_0825_holdout_conf030.pth}"
     CHECKPOINT_COLOR_ORDER="RGB"
     ENABLE_CLASS_AGNOSTIC_NMS="false"
-    MODEL_VERSION="cam4-rfdetr-seg-xlarge-20260825-best"
+    MODEL_VERSION="rfdetr-seg-xlarge-selected-external-0825-conf030"
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   *)

@@ -43,18 +43,18 @@
     },
     {
       "path": "README_EN.md",
-      "size_bytes": 2084,
-      "sha256": "b81c3b8131b7b525417dc13e325a515fbb6966a9ea3aa13d4a43ea2a2388b375"
+      "size_bytes": 2082,
+      "sha256": "30549a651cf2b7221269a7941b74ed35d7916028515643ac766c7b3aefb964dc"
     },
     {
       "path": "README_KO.md",
-      "size_bytes": 2129,
-      "sha256": "15e76af391480d7c33538dfb0a2507b9ac691cc3ab48c6bd36f8f60b73b773d4"
+      "size_bytes": 2155,
+      "sha256": "bdaf04920e5ee0cdcb77d0356eb39956559a318c93e7ee69173068c2aa9a02bc"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "size_bytes": 2038,
-      "sha256": "76a18ad1384627a3dfb3247e592fd78c3935669bfdf7aa1cb2af38022e3986f8"
+      "size_bytes": 2618,
+      "sha256": "3ef966cb08741b541611cb0b5c6631e9defa9af8ef277e297c93d04b740b8f1a"
     },
     {
       "path": "VALIDATION_REPORT.md",
@@ -68,8 +68,8 @@
     },
     {
       "path": "algorithm/DELIVERY_CHECKLIST.md",
-      "size_bytes": 1641,
-      "sha256": "33fa88b82c063f319970f5ac1572e4458c8b1867f6f179558be3e1fcb014f67b"
+      "size_bytes": 1733,
+      "sha256": "f27a85c60594331a16a68d1eeaa80a7ef02b546532b207738b59b5bfa07daa1d"
     },
     {
       "path": "algorithm/LICENSES/THIRD_PARTY_AND_DATA_REVIEW.md",
@@ -78,13 +78,13 @@
     },
     {
       "path": "algorithm/QUICKSTART.md",
-      "size_bytes": 3205,
-      "sha256": "1baf1c2911c68ae47400577b7fd7c7bce65d0265baeddcf99a6dd9e3613e4e1a"
+      "size_bytes": 3430,
+      "sha256": "3d554812b9d2537712f8ff1df5a7b666e42669e86a9e0471c43712bdd9beb810"
     },
     {
       "path": "algorithm/README_KO.md",
-      "size_bytes": 3669,
-      "sha256": "298e5e5045d2495827dc7cd43cfabe6501dd7b02a4c510330604119b798a88e7"
+      "size_bytes": 3746,
+      "sha256": "2f9cb934469b90783b6a3c01b9f8303fb279e8cab501d69fc30783803816df58"
     },
     {
       "path": "algorithm/VERSION",
@@ -103,8 +103,8 @@
     },
     {
       "path": "algorithm/config/model_variants.json",
-      "size_bytes": 1617,
-      "sha256": "f710215c08507c596b5e5801fab668ddc088302f59fb58291bb9670c88b18334"
+      "size_bytes": 1655,
+      "sha256": "29b4c1171122a9840a357ad2a92534d210dadfdc9badc316891c9d0d71e60b28"
     },
     {
       "path": "algorithm/config/pose_convention_v2.json",
@@ -117,14 +117,19 @@
       "sha256": "c092e09cca83ed324f11af98ae01886e7e6d6811f0871bf3abecf9885b851b60"
     },
     {
+      "path": "algorithm/docs/ARPA_RGB_AND_SELECTED_XLARGE_EVALUATION_20260826.md",
+      "size_bytes": 4015,
+      "sha256": "ce17dea6f4cc7a72a6319e18748fe066d02ad8d09847bde42d06b7ac8c5e5d2b"
+    },
+    {
       "path": "algorithm/docs/CAM4_T030_ROI_TEMPORAL_EVALUATION_20260825.md",
       "size_bytes": 2152,
       "sha256": "276b1262ba193af6e5c8056c492c40a4af4b9e3c335607c32526df9f2dbe6dcd"
     },
     {
       "path": "algorithm/docs/LIMITATIONS.md",
-      "size_bytes": 1518,
-      "sha256": "69860cf0bd49592c128c048ae551aecc2f3b1d81486069a72c75b0af0ad7a13a"
+      "size_bytes": 1602,
+      "sha256": "a233f57852612e4f694831a91c82625f8ba748c5a7d53665c4aa0f7c9c0037a5"
     },
     {
       "path": "algorithm/docs/PERFORMANCE.md",
@@ -263,8 +268,8 @@
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/rfdetr_inference.py",
-      "size_bytes": 10688,
-      "sha256": "40fd8a6583c62e3d603afdd881d5f93ac1fccb5a3722bdcd165a75bf570324fe"
+      "size_bytes": 10700,
+      "sha256": "c3e55a4ecb8bc91574d2711e0c65b48d1855c9a20fe28a47328974543b681a2b"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/rle.py",
@@ -297,9 +302,24 @@
       "sha256": "e44de6288c0c0df5ce326d460b000940cc17027ca5b81e7b00071542c3b50a33"
     },
     {
+      "path": "algorithm/validation/evaluate_rfdetr_mcap_pose.py",
+      "size_bytes": 19802,
+      "sha256": "77aa04ccfd90107d8d42b7564ba7a907cca5538affe6387c139b47b504d22fa4"
+    },
+    {
       "path": "algorithm/validation/evaluate_rfdetr_rosbag_frames.py",
       "size_bytes": 24674,
       "sha256": "e62f5b512d3c23129bf73e45ececed397db2984d0520fcbe05196bb79f6f7741"
+    },
+    {
+      "path": "algorithm/validation/evaluate_rfdetr_video.py",
+      "size_bytes": 14522,
+      "sha256": "b33a5099f7d48bdd7387c968c68e0f031a997c445b0e0b1d0919b35ee0c7723d"
+    },
+    {
+      "path": "algorithm/validation/select_video_roi.py",
+      "size_bytes": 4849,
+      "sha256": "81572ce57255712e9a5ea657949f0671cbc657b8f8584ee45f4056798ba2008f"
     },
     {
       "path": "algorithm/validation/validate_detection.py",
@@ -378,13 +398,23 @@
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/config/roi_profiles/README.md",
-      "size_bytes": 1020,
-      "sha256": "8dd9fa53528f082e09eef6f20e3fa20964f85f006e01d3c4e3090949fb3a9348"
+      "size_bytes": 1749,
+      "sha256": "35fcc96b6a39274cc617cba3dd031ff24ee8c13903f4212775e657e58e657811"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/roi_profiles/cam3_20260825_arpa_sharing_tray.yaml",
+      "size_bytes": 523,
+      "sha256": "84f0679e3f8eac5cf16bc7c0571429cd8df8d5691f64f303c90d67f0b32eae52"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/config/roi_profiles/cam4_20260814_mayo.yaml",
       "size_bytes": 521,
       "sha256": "71137725809235714fe422a745c614b3e313abd98ad3b88b857ab86df0deb7ea"
+    },
+    {
+      "path": "ros2_ws/src/pnu_surgical_perception/config/roi_profiles/cam4_20260825_arpa_sharing_mayo.yaml",
+      "size_bytes": 542,
+      "sha256": "51c3ac4870a0684772a1a00f21c2890663e8c522ee6704faafae3cce0bc91c77"
     },
     {
       "path": "ros2_ws/src/pnu_surgical_perception/package.xml",
@@ -588,8 +618,8 @@
     },
     {
       "path": "scripts/run_cam4_native_pose.sh",
-      "size_bytes": 3519,
-      "sha256": "c7e0845624f0734384d8d2e9d5d917eb3a57931eb4989c3b293077e1d031cac9"
+      "size_bytes": 3569,
+      "sha256": "7295bf02a164915249697bfe84ca1e3bcf1de57318219c0e0191d828ebc19f3e"
     },
     {
       "path": "scripts/validate_bundle.sh",

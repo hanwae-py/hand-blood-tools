@@ -49,7 +49,7 @@ _MODEL_RUNTIME_SPECS: dict[ModelSize, _ModelRuntimeSpec] = {
         class_name="RFDETRSegXLarge",
         checkpoint_color_order="RGB",
         enable_class_agnostic_nms=False,
-        model_version="cam4-rfdetr-seg-xlarge-20260825-best",
+        model_version="rfdetr-seg-xlarge-selected-external-0825-conf030",
     ),
 }
 
