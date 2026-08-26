@@ -310,9 +310,11 @@ Implementation:
 - `requirements.txt`
 - `README.md`
 
-The classifier was developed with offline video overlays in the originating
-research workspace. Large videos, generated overlays, cached models, and the
-experimental worklog are intentionally excluded from this clean source bundle.
+The bundle includes one approved 22-second clip, its extracted keypoints, and
+the current generated results as a reproducible regression fixture under
+`test_data/`. These generated results are not human-annotated accuracy ground
+truth. Large datasets, generated overlays, cached models, and the experimental
+worklog are intentionally excluded.
 
 ## 11. Proposed ROS 2 adaptation (not yet tested)
 

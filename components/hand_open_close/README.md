@@ -11,6 +11,9 @@ has not yet been implemented or tested.
 
 - `anatomical_rule_classifier.py`: dependency-light runtime classifier.
 - `tests/test_anatomical_rule_classifier.py`: synthetic topology tests.
+- `tests/test_recorded_fixture.py`: regression test over recorded landmarks.
+- `test_data/`: approved 22-second RGB fixture, matching landmarks, and the
+  current generated result baseline.
 - `open_close_rule.md`: rule definition, tested alternatives, limitations,
   offline evidence, and proposed ROS adaptation.
 - `requirements.txt`: direct Python dependency.
@@ -41,6 +44,9 @@ python -m unittest discover -s tests -v
 Before robot use, the receiving team must validate the rule on its own camera,
 gloves, viewpoints, keypoint stream, and failure cases. The binary label is a
 perception result; it should not directly command robot motion.
+
+The recorded expected results are a regression baseline, not human-annotated
+accuracy ground truth. See `test_data/README.md` for the distinction.
 
 ## ROS handoff
 

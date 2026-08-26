@@ -13,9 +13,11 @@ postprocessor handoff, and their ROS 2 take-turn controller.
 | `components/blood_detection` | current | RF-DETR Seg-Small 2D Blood mask/blue overlay; optional centroid depth |
 | `components/coordinator_ws` | current | `DETECT_TOOL`, `DETECT_HAND`, `DETECT_BLOOD`, `STOP` lifecycle selector |
 
-This folder deliberately does **not** include checkpoints, MCAP, H5, AVI,
-recorded images, Python virtual environments, or ROS `build/install/log`
-folders. They must be supplied locally on the destination PC.
+This folder deliberately does **not** include checkpoints, MCAP, H5, large
+recorded datasets, Python virtual environments, or ROS `build/install/log`
+folders. They must be supplied locally on the destination PC. The documented
+22-second fixture under `components/hand_open_close/test_data` is the only
+small recorded-video exception.
 
 ## Required external checkpoints
 
