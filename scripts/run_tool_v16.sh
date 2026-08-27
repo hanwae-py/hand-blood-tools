@@ -53,11 +53,6 @@ case "${TOOL_MODEL_SIZE}" in
     exit 2
     ;;
 esac
-if [[ -n "${TOOL_CONFIDENCE_THRESHOLD_OVERRIDE}" ]]; then
-  TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_OVERRIDE}"
-else
-  TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}"
-fi
 if [[ "${1:-}" != "help" && "${1:-}" != "--help" ]] && \
   [[ -z "${TOOL_MODEL_CHECKPOINT}" || ! -f "${TOOL_MODEL_CHECKPOINT}" ]]; then
   echo "Tool ${TOOL_MODEL_SIZE} checkpoint not found: ${TOOL_MODEL_CHECKPOINT:-<unset>}" >&2
@@ -70,6 +65,25 @@ configure_tool_camera() {
     cam_3|cam_4) : ;;
     *)
       echo "Tool pose is configured only for cam_3 or cam_4, got: ${CAM}" >&2
+      return 2
+      ;;
+  esac
+  if [[ -n "${TOOL_CONFIDENCE_THRESHOLD_OVERRIDE}" ]]; then
+    TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_OVERRIDE}"
+  elif [[ "${CAM}" == "cam_3" ]]; then
+    TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_CAM3:-${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}}"
+  else
+    TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_CAM4:-${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}}"
+  fi
+  if [[ "${CAM}" == "cam_3" ]]; then
+    TOOL_ENABLE_CLASS_AGNOSTIC_NMS="${TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM3:-${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}}"
+  else
+    TOOL_ENABLE_CLASS_AGNOSTIC_NMS="${TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM4:-${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}}"
+  fi
+  case "${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}" in
+    true|false) : ;;
+    *)
+      echo "Tool NMS setting must be true or false; got: ${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}" >&2
       return 2
       ;;
   esac
