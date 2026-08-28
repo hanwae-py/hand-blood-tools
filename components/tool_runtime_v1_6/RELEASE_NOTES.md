@@ -65,3 +65,12 @@ from the previous runtime.
 - Confirmed that curved `0704_6` and straight `0704_9` masks both produce
   `+Y` from the connector/handle toward the electrode tip.
 - Added four-way rotation regression tests and a full quaternion `+Y` test.
+
+## 2026-08-28 Adson pose-axis correction
+
+- Replaced Adson's unstable end-mass sign rule with a rotation-invariant
+  tweezer-tip taper rule.
+- Confirmed that `0704_6` and `0704_9` masks produce `+Y` from the proximal
+  joined end toward the narrow working tip.
+- Added four-way rotation regression tests and included Adson in the full
+  quaternion `+Y` test.

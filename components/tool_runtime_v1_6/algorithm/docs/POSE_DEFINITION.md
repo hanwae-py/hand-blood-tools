@@ -23,6 +23,16 @@
 orientation 중 image mask에서 새로 관측하는 값은 평면 내 heading이다. support-plane normal은 외부 입력
 prior이므로 mode는 `PLANAR_4DOF_WITH_NORMAL_PRIOR`이다.
 
+### Adson Forceps 끝단 부호
+
+Adson은 `0704_6`과 `0704_9`에서 양 끝 25%의 면적 차이가 작아, 기존 end-mass 규칙으로는 같은
+배치에서도 방향이 반전된다. PCA 장축 양 끝의 terminal 10%와 바로 안쪽 shoulder 10%를 비교하고,
+shoulder에서 terminal로 더 강하게 가늘어지는 tweezer tip을 `+Y`로 선택한다. 반대쪽 proximal
+joined end가 handle(`-Y`)이다.
+
+두 수축률이 비슷하거나 수축 신호가 약하면 quaternion은 계산하되 `endpoint_sign_confidence`가 낮아져
+결과가 `DEGRADED`로 표시된다.
+
 ### Bipolar Forceps 끝단 부호
 
 Bipolar는 `0704_6`의 굽고 벌어진 형태와 `0704_9`의 직선형 형태에서 tip 쪽 면적 관계가 반대로

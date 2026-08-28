@@ -53,8 +53,8 @@
     },
     {
       "path": "RELEASE_NOTES.md",
-      "size_bytes": 3256,
-      "sha256": "5668bbabd877a8cb7c26cd567953fa7660903a7612101fadc311befbebfe120c"
+      "size_bytes": 3616,
+      "sha256": "fb1b05bdc829b610962e9f45f7ac5435a3c16c70c49903412245883354103675"
     },
     {
       "path": "VALIDATION_REPORT.md",
@@ -108,8 +108,8 @@
     },
     {
       "path": "algorithm/config/pose_convention_v2.json",
-      "size_bytes": 4083,
-      "sha256": "b29d2c23f0ccb60432a21f72a20ec83cb54bf3ee33363825c4ff6c6637c1678f"
+      "size_bytes": 4190,
+      "sha256": "1e99f9594f49d5b54796a8c5b1f6e4929f2d50b29db33b1e7415e2674e42cf5b"
     },
     {
       "path": "algorithm/docs/ALGORITHM_API.md",
@@ -138,8 +138,8 @@
     },
     {
       "path": "algorithm/docs/POSE_DEFINITION.md",
-      "size_bytes": 2296,
-      "sha256": "ecf0dfd96ca574f981615f18966b2abcaed7862a76224e641037456a7b35cb0f"
+      "size_bytes": 2880,
+      "sha256": "e72e9ed5bbf1e04138d99faec318d8a58b9d516f8d7f6484d990b7d9f3a6c387"
     },
     {
       "path": "algorithm/docs/ROSBAG39_EVALUATION_20260825.md",
@@ -263,8 +263,8 @@
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/planar_pose.py",
-      "size_bytes": 17952,
-      "sha256": "e571a6873ec64ec9956b36fecc3c89ba31600be5a7a6b94dc5019ae3cb3137c9"
+      "size_bytes": 18360,
+      "sha256": "3bad8a35125861c6e242c1e7c4d4cdc2c74f2b2b9393bba331742b763ac921e7"
     },
     {
       "path": "algorithm/src/pnu_surgical_tool/rfdetr_inference.py",
@@ -293,8 +293,8 @@
     },
     {
       "path": "algorithm/tests/test_planar_origin.py",
-      "size_bytes": 9812,
-      "sha256": "a8d89b15d62ce06f8179067fc99822f4ab68a0ac96b2cedc754d90e997e94467"
+      "size_bytes": 12119,
+      "sha256": "3880ff76b93d965fe7c24b9d10eaf9ebdb5c729d17c3763cdba4140fad4fbb1b"
     },
     {
       "path": "algorithm/tests/test_rfdetr_model_selection.py",

@@ -45,7 +45,8 @@
       "name": "Adson Forceps",
       "negative_y_endpoint": "proximal joined-end center",
       "positive_y_endpoint": "tweezer-tip midpoint",
-      "initial_sign_estimator": "smaller compact longitudinal terminal mass is the proximal joined end"
+      "initial_sign_estimator": "stronger terminal-to-shoulder taper is the tweezer tip",
+      "note": "Validated against 0704_6 and 0704_9 Adson masks; low taper separation degrades endpoint-sign confidence."
     },
     {
       "canonical_id": 5,

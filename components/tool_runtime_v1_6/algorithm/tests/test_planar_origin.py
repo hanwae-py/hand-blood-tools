@@ -55,6 +55,26 @@ _BIPOLAR_CASE_FIXTURES = {
 }
 
 
+_ADSON_CASE_FIXTURES = {
+    "0704_6_72s_placed": {
+        "contour": [
+            [0, 9], [2, 16], [10, 21], [63, 19], [115, 11],
+            [117, 3], [16, 0], [2, 3],
+        ],
+        "tip_uv": [117, 3],
+        "handle_uv": [0, 9],
+    },
+    "0704_9_70s_straight": {
+        "contour": [
+            [123, 5], [80, 0], [7, 6], [0, 13],
+            [6, 18], [19, 19], [75, 18], [112, 12],
+        ],
+        "tip_uv": [123, 5],
+        "handle_uv": [0, 13],
+    },
+}
+
+
 def _rotate_uv_90_ccw(uv: np.ndarray, old_width: int) -> np.ndarray:
     return np.array((uv[1], old_width - 1 - uv[0]), dtype=np.float64)
 
@@ -95,8 +115,65 @@ def test_bipolar_working_endpoint_points_to_tip_for_case_shapes(
     assert endpoints["sign_confidence"] >= 0.2
 
 
-def test_bipolar_pose_positive_y_points_to_working_tip() -> None:
-    fixture = _BIPOLAR_CASE_FIXTURES["0704_9_55s_straight"]
+@pytest.mark.parametrize("fixture_name", _ADSON_CASE_FIXTURES)
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_adson_working_endpoint_points_to_tip_for_case_shapes(
+    fixture_name: str,
+    quarter_turns: int,
+) -> None:
+    fixture = _ADSON_CASE_FIXTURES[fixture_name]
+    contour = np.asarray(fixture["contour"], dtype=np.int32)
+    height = int(contour[:, 1].max()) + 1
+    width = int(contour[:, 0].max()) + 1
+    mask = np.zeros((height, width), dtype=np.uint8)
+    __import__("cv2").fillPoly(mask, [contour], 1)
+    tip_uv = np.asarray(fixture["tip_uv"], dtype=np.float64)
+    handle_uv = np.asarray(fixture["handle_uv"], dtype=np.float64)
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask)
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Adson Forceps"),
+    )
+
+    working_uv = endpoints["working_uv"]
+    estimated_handle_uv = endpoints["handle_uv"]
+    assert np.linalg.norm(working_uv - tip_uv) < np.linalg.norm(
+        estimated_handle_uv - tip_uv
+    )
+    assert np.linalg.norm(estimated_handle_uv - handle_uv) < np.linalg.norm(
+        working_uv - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.2
+
+
+@pytest.mark.parametrize(
+    ("class_name", "canonical_class_id", "model_class_index", "fixture"),
+    [
+        (
+            "Bipolar Forceps",
+            5,
+            4,
+            _BIPOLAR_CASE_FIXTURES["0704_9_55s_straight"],
+        ),
+        (
+            "Adson Forceps",
+            4,
+            3,
+            _ADSON_CASE_FIXTURES["0704_9_70s_straight"],
+        ),
+    ],
+)
+def test_pose_positive_y_points_to_working_tip(
+    class_name: str,
+    canonical_class_id: int,
+    model_class_index: int,
+    fixture: dict[str, list[list[int]] | list[int]],
+) -> None:
     contour = np.asarray(fixture["contour"], dtype=np.int32)
     height = int(contour[:, 1].max()) + 1
     width = int(contour[:, 0].max()) + 1
@@ -104,9 +181,9 @@ def test_bipolar_pose_positive_y_points_to_working_tip() -> None:
     __import__("cv2").fillPoly(mask, [contour], 1)
     instance = DetectionInstance(
         frame_local_instance_id=0,
-        canonical_class_id=5,
-        model_class_index=4,
-        class_name="Bipolar Forceps",
+        canonical_class_id=canonical_class_id,
+        model_class_index=model_class_index,
+        class_name=class_name,
         class_confidence=0.9,
         bbox_xyxy_px=(0.0, 0.0, float(width), float(height)),
         mask=mask.astype(bool),
@@ -114,7 +191,7 @@ def test_bipolar_pose_positive_y_points_to_working_tip() -> None:
     detections = DetectionBatch(
         image_width=width,
         image_height=height,
-        model_version="bipolar-regression",
+        model_version=f"{class_name}-regression",
         ontology_version="test",
         instances=[instance],
     )
