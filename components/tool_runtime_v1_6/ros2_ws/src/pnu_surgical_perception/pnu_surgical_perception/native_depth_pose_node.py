@@ -363,6 +363,10 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('checkpoint_color_order', 'BGR')
         self.declare_parameter('model_version', '')
         self.declare_parameter('confidence_threshold', 0.3)
+        self.declare_parameter(
+            'class_confidence_threshold_names', ['Adson Forceps']
+        )
+        self.declare_parameter('class_confidence_threshold_values', [0.3])
         self.declare_parameter('enable_class_agnostic_nms', True)
         self.declare_parameter('class_agnostic_nms_iou', 0.8)
         self.declare_parameter('workspace_roi_enabled', False)
@@ -510,6 +514,30 @@ class NativeDepthPoseNode(Node):
             )
         self._model_version = str(value('model_version')).strip() or None
         self._confidence_threshold = float(value('confidence_threshold'))
+        class_threshold_names = [
+            str(item).strip()
+            for item in value('class_confidence_threshold_names')
+        ]
+        class_threshold_values = [
+            float(item)
+            for item in value('class_confidence_threshold_values')
+        ]
+        if len(class_threshold_names) != len(class_threshold_values):
+            raise ValueError(
+                'class confidence threshold names and values must have '
+                'equal length'
+            )
+        if any(not name for name in class_threshold_names):
+            raise ValueError(
+                'class confidence threshold names must not be empty'
+            )
+        if len(set(class_threshold_names)) != len(class_threshold_names):
+            raise ValueError(
+                'class confidence threshold names must be unique'
+            )
+        self._class_confidence_thresholds = dict(
+            zip(class_threshold_names, class_threshold_values, strict=True)
+        )
         self._enable_class_agnostic_nms = bool(
             value('enable_class_agnostic_nms')
         )
@@ -902,6 +930,9 @@ class NativeDepthPoseNode(Node):
                 ontology_path=self._ontology,
                 model_size=self._model_size,
                 confidence_threshold=self._confidence_threshold,
+                class_confidence_thresholds=(
+                    self._class_confidence_thresholds
+                ),
                 enable_class_agnostic_nms=self._enable_class_agnostic_nms,
                 class_agnostic_nms_iou=self._class_agnostic_nms_iou,
                 optimize=self._optimize,
@@ -1207,6 +1238,9 @@ class NativeDepthPoseNode(Node):
                 'instance_count': len(detections.instances),
                 'valid_pose_count': valid_count,
                 'confidence_threshold': self._confidence_threshold,
+                'class_confidence_thresholds': dict(
+                    self._class_confidence_thresholds
+                ),
                 'enable_class_agnostic_nms': self._enable_class_agnostic_nms,
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
                 'workspace_roi_enabled': self._workspace_roi_enabled,

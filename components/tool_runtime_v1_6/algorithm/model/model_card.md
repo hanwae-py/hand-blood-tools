@@ -16,12 +16,14 @@
 
 ```text
 confidence_threshold = 0.30
+class_confidence_thresholds = {}
 enable_class_agnostic_nms = true
 class_agnostic_nms_iou = 0.80
 ```
 
-NMS removes overlapping bbox candidates in descending confidence order without using class IDs. Set
-`enable_class_agnostic_nms=false` to receive raw thresholded predictions.
+Class thresholds are applied before NMS. NMS then removes overlapping bbox candidates in descending
+confidence order without using class IDs. Set `enable_class_agnostic_nms=false` to receive raw
+thresholded predictions.
 
 ## Training provenance
 

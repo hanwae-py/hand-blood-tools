@@ -19,7 +19,7 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
   `checkpoint_selected_external_0825_holdout_conf030.pth` 중 선택
 - 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   받은 `.pth` 경로와 `TOOL_MODEL_SIZE`를 `config/system.env`에 설정한다.
-- 기본 confidence threshold: 0.30
+- 모든 클래스의 기본 confidence threshold: 0.30
 - Small: 기존 BGR 입력과 class-agnostic bbox NMS IoU 0.80 유지
 - Medium/Large/XLarge: RGB 입력, 별도 NMS 없음
 - rosbag/live 화각별 ROI 프로파일과 mask-overlap ROI 필터

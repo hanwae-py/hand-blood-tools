@@ -10,7 +10,8 @@
       "enable_class_agnostic_nms": true,
       "class_agnostic_nms_iou": 0.8,
       "native_resolution": 384,
-      "recommended_threshold": 0.3
+      "recommended_threshold": 0.3,
+      "recommended_class_thresholds": {}
     },
     "medium": {
       "architecture": "RFDETRSegMedium",
@@ -19,7 +20,8 @@
       "checkpoint_input_color_order": "RGB",
       "enable_class_agnostic_nms": false,
       "native_resolution": 432,
-      "recommended_threshold": 0.3
+      "recommended_threshold": 0.3,
+      "recommended_class_thresholds": {}
     },
     "large": {
       "architecture": "RFDETRSegLarge",
@@ -28,7 +30,8 @@
       "checkpoint_input_color_order": "RGB",
       "enable_class_agnostic_nms": false,
       "native_resolution": 504,
-      "recommended_threshold": 0.3
+      "recommended_threshold": 0.3,
+      "recommended_class_thresholds": {}
     },
     "xlarge": {
       "architecture": "RFDETRSegXLarge",
@@ -37,7 +40,8 @@
       "checkpoint_input_color_order": "RGB",
       "enable_class_agnostic_nms": false,
       "native_resolution": 624,
-      "recommended_threshold": 0.3
+      "recommended_threshold": 0.3,
+      "recommended_class_thresholds": {}
     }
   }
 }

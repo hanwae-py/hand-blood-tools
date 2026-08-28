@@ -50,3 +50,18 @@ from the previous runtime.
   calibration substitutes.
 - Added reproducible RGB-video and native-depth MCAP evaluators. The latter
   reports constrained planar pose validity, not unconstrained 6D accuracy.
+
+## 2026-08-28 class-specific confidence thresholds
+
+- Added ontology-name-based confidence threshold overrides to the RF-DETR
+  adapter and applied them before class-agnostic NMS.
+- Kept the override capability available but aligned every active class to the
+  global 0.30 threshold.
+
+## 2026-08-28 Bipolar pose-axis correction
+
+- Replaced Bipolar's end-mass sign rule with a rotation-invariant proximal
+  connector taper rule.
+- Confirmed that curved `0704_6` and straight `0704_9` masks both produce
+  `+Y` from the connector/handle toward the electrode tip.
+- Added four-way rotation regression tests and a full quaternion `+Y` test.

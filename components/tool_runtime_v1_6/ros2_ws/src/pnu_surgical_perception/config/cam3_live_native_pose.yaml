@@ -24,6 +24,8 @@
     workspace_zone: "tray"
 
     confidence_threshold: 0.3
+    class_confidence_threshold_names: ["Adson Forceps"]
+    class_confidence_threshold_values: [0.3]
     enable_class_agnostic_nms: true
     class_agnostic_nms_iou: 0.8
 

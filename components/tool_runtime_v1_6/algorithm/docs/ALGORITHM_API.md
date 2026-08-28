@@ -10,6 +10,34 @@ detections = detector.predict(
 )
 ```
 
+현재 배포 기본값은 모든 클래스가 `0.3`이다. 클래스별 override 기능은 유지되며, 이후 특정 클래스만
+다르게 설정할 때 다음처럼 구성할 수 있다.
+
+```python
+detector = SurgicalToolDetector(
+    DetectorConfig(
+        checkpoint_path=checkpoint,
+        ontology_path=ontology,
+        confidence_threshold=0.3,
+        class_confidence_thresholds={"Adson Forceps": 0.2},
+    )
+)
+```
+
+RF-DETR에는 설정 중 가장 낮은 threshold를 전달하고, 반환 후보에 클래스별 threshold를 적용한 뒤
+class-agnostic NMS를 수행한다. 따라서 threshold 미달 후보가 먼저 다른 클래스 후보를 억제하지 않는다.
+클래스명은 `ontology.json`의 `canonical_name`과 정확히 일치해야 하며, 알 수 없는 이름이나 `[0, 1]`
+범위 밖 값은 초기화 시 거부한다. 특정 클래스 threshold를 낮추면 해당 클래스 recall과 함께 false
+positive도 증가할 수 있다.
+
+ROS 2에서는 같은 설정을 두 배열의 같은 위치로 지정한다.
+
+```yaml
+confidence_threshold: 0.3
+class_confidence_threshold_names: ["Adson Forceps"]
+class_confidence_threshold_values: [0.3]  # 현재는 global 값과 동일
+```
+
 Small checkpoint의 검증된 내부 색상 순서는 BGR이고 Medium/Large/XLarge는 RGB이다.
 `DetectorConfig.model_size`가 로더와 기본 색상 계약을 함께 선택한다. `color_order`는 호출 배열의
 의미이며 adapter가 checkpoint 계약에 맞게 정확히 한 번 변환한다. 이 값을 생략하거나 추정하지 않는다.

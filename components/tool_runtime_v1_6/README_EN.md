@@ -20,7 +20,7 @@ helpers used by Hand and Blood.
   `checkpoint_selected_external_0825_holdout_conf030.pth`
 - Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   Set `TOOL_MODEL_SIZE` and the matching checkpoint path in `config/system.env`.
-- Default confidence threshold: 0.30
+- Default confidence threshold for every class: 0.30
 - Small: legacy BGR input and class-agnostic bbox NMS IoU 0.80
 - Medium/Large/XLarge: RGB input and no additional NMS
 - Per-view rosbag/live ROI profiles with mask-overlap workspace filtering

@@ -25,6 +25,28 @@ class _FakePredictionModel:
         )
 
 
+class _FakeClassThresholdModel:
+    def __init__(self) -> None:
+        self.observed_threshold: float | None = None
+
+    def predict(self, image, threshold, include_source_image):
+        del image, include_source_image
+        self.observed_threshold = float(threshold)
+        masks = np.zeros((3, 12, 12), dtype=bool)
+        masks[0, 2:8, 2:8] = True
+        masks[1, 2:8, 2:8] = True
+        masks[2, 8:11, 8:11] = True
+        return SimpleNamespace(
+            xyxy=np.asarray(
+                [[2, 2, 8, 8], [2, 2, 8, 8], [8, 8, 11, 11]],
+                dtype=float,
+            ),
+            class_id=np.asarray([3, 4, 0], dtype=int),
+            confidence=np.asarray([0.21, 0.29, 0.31], dtype=float),
+            mask=masks,
+        )
+
+
 @pytest.mark.parametrize(
     ("model_size", "expected_class", "expected_color", "expected_instances"),
     [
@@ -105,5 +127,60 @@ def test_rejects_unknown_model_size(tmp_path):
                 checkpoint_path=tmp_path / "model.pth",
                 ontology_path=ontology,
                 model_size="2xlarge",  # type: ignore[arg-type]
+            )
+        )
+
+
+def test_class_threshold_override_is_applied_before_nms(tmp_path, monkeypatch):
+    from pnu_surgical_tool import DetectorConfig, SurgicalToolDetector
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_available=lambda: False,
+            synchronize=lambda: None,
+        )
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    ontology = Path(__file__).resolve().parents[1] / "model" / "ontology.json"
+    detector = SurgicalToolDetector(
+        DetectorConfig(
+            checkpoint_path=tmp_path / "unused.pth",
+            ontology_path=ontology,
+            confidence_threshold=0.3,
+            class_confidence_thresholds={"Adson Forceps": 0.2},
+            enable_class_agnostic_nms=True,
+            optimize=False,
+        )
+    )
+    model = _FakeClassThresholdModel()
+    detector._model = model
+
+    result = detector.predict(np.zeros((12, 12, 3), dtype=np.uint8), "BGR")
+
+    assert model.observed_threshold == pytest.approx(0.2)
+    assert [item.class_name for item in result.instances] == [
+        "Scalpel",
+        "Adson Forceps",
+    ]
+    assert [item.frame_local_instance_id for item in result.instances] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    ("thresholds", "message"),
+    [
+        ({"Unknown Tool": 0.2}, "Unknown class threshold"),
+        ({"Adson Forceps": 1.1}, r"must be in \[0, 1\]"),
+    ],
+)
+def test_rejects_invalid_class_thresholds(tmp_path, thresholds, message):
+    from pnu_surgical_tool import DetectorConfig, SurgicalToolDetector
+
+    ontology = Path(__file__).resolve().parents[1] / "model" / "ontology.json"
+    with pytest.raises(ValueError, match=message):
+        SurgicalToolDetector(
+            DetectorConfig(
+                checkpoint_path=tmp_path / "unused.pth",
+                ontology_path=ontology,
+                class_confidence_thresholds=thresholds,
             )
         )

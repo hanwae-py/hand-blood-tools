@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -59,6 +60,7 @@ class DetectorConfig:
     checkpoint_path: str | Path
     ontology_path: str | Path
     confidence_threshold: float = 0.3
+    class_confidence_thresholds: Mapping[str, float] | None = None
     enable_class_agnostic_nms: bool | None = None
     class_agnostic_nms_iou: float | None = 0.8
     optimize: bool = True
@@ -104,6 +106,26 @@ class SurgicalToolDetector:
             raise ValueError("Expected frozen canonical IDs 1..8")
         if not 0.0 <= config.confidence_threshold <= 1.0:
             raise ValueError("confidence_threshold must be in [0, 1]")
+        known_class_names = {
+            str(item["canonical_name"]) for item in self._classes
+        }
+        self.class_confidence_thresholds = {
+            str(class_name): float(class_threshold)
+            for class_name, class_threshold in (
+                config.class_confidence_thresholds or {}
+            ).items()
+        }
+        unknown_class_names = (
+            self.class_confidence_thresholds.keys() - known_class_names
+        )
+        if unknown_class_names:
+            names = ", ".join(sorted(unknown_class_names))
+            raise ValueError(f"Unknown class threshold: {names}")
+        for class_name, class_threshold in self.class_confidence_thresholds.items():
+            if not 0.0 <= class_threshold <= 1.0:
+                raise ValueError(
+                    f"class threshold for {class_name!r} must be in [0, 1]"
+                )
         if config.class_agnostic_nms_iou is not None and not (
             0.0 <= config.class_agnostic_nms_iou <= 1.0
         ):
@@ -154,6 +176,9 @@ class SurgicalToolDetector:
         )
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("confidence_threshold must be in [0, 1]")
+        candidate_threshold = min(
+            (threshold, *self.class_confidence_thresholds.values())
+        )
         self.load()
         if color_order == self.checkpoint_color_order:
             model_image = frame
@@ -169,7 +194,7 @@ class SurgicalToolDetector:
         started = time.perf_counter()
         detections = self._model.predict(
             model_image,
-            threshold=threshold,
+            threshold=candidate_threshold,
             include_source_image=False,
         )
         if torch.cuda.is_available():
@@ -183,23 +208,35 @@ class SurgicalToolDetector:
         boxes = np.asarray(detections.xyxy)
         model_indices = np.asarray(detections.class_id, dtype=int)
         confidences = np.asarray(detections.confidence, dtype=float)
-        keep_indices = (
-            class_agnostic_nms_indices(
-                boxes,
-                confidences,
-                self.config.class_agnostic_nms_iou,
+        detection_thresholds = np.empty(len(model_indices), dtype=float)
+        for index, model_index in enumerate(model_indices):
+            if model_index < 0 or model_index >= len(self._classes):
+                raise RuntimeError(f"Unexpected model class index: {model_index}")
+            class_name = str(self._classes[model_index]["canonical_name"])
+            detection_thresholds[index] = self.class_confidence_thresholds.get(
+                class_name,
+                threshold,
             )
+        threshold_keep_indices = np.flatnonzero(
+            confidences > detection_thresholds
+        )
+        keep_indices = (
+            threshold_keep_indices[
+                class_agnostic_nms_indices(
+                    boxes[threshold_keep_indices],
+                    confidences[threshold_keep_indices],
+                    self.config.class_agnostic_nms_iou,
+                )
+            ]
             if self.enable_class_agnostic_nms
             and self.config.class_agnostic_nms_iou is not None
-            else np.arange(len(boxes), dtype=int)
+            else threshold_keep_indices
         )
         instances: list[DetectionInstance] = []
         for frame_local_id, index in enumerate(keep_indices):
             box = boxes[index]
             model_index = model_indices[index]
             confidence = confidences[index]
-            if model_index < 0 or model_index >= len(self._classes):
-                raise RuntimeError(f"Unexpected model class index: {model_index}")
             mask = np.asarray(masks[index], dtype=bool)
             if mask.shape != (height, width):
                 mask = cv2.resize(

@@ -53,8 +53,9 @@
       "name": "Bipolar Forceps",
       "negative_y_endpoint": "rigid proximal connector center",
       "positive_y_endpoint": "electrode-tip midpoint",
-      "initial_sign_estimator": "larger longitudinal end mass is the handle",
-      "excluded_geometry": ["cable", "hand"]
+      "initial_sign_estimator": "stronger terminal-to-shoulder taper is the proximal connector",
+      "excluded_geometry": ["cable", "hand"],
+      "note": "Validated against curved 0704_6 and straight 0704_9 Bipolar masks; low taper separation degrades endpoint-sign confidence."
     },
     {
       "canonical_id": 6,

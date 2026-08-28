@@ -3,6 +3,7 @@
   "model_size": "small",
   "architecture": "RFDETRSegSmall",
   "confidence_threshold": 0.3,
+  "class_confidence_thresholds": {},
   "enable_class_agnostic_nms": true,
   "class_agnostic_nms_iou": 0.8,
   "workspace_roi": {
