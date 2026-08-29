@@ -18,6 +18,7 @@ from .trt_batch import BatchInferenceClient
 ModelSize = Literal["small", "medium", "large", "xlarge"]
 ColorOrder = Literal["RGB", "BGR"]
 SAME_CLASS_MASK_CONTAINMENT_THRESHOLD = 0.95
+BIPOLAR_LARGER_BBOX_MAX_CONFIDENCE_GAP = 0.03
 
 
 @dataclass(frozen=True)
@@ -278,6 +279,9 @@ class SurgicalToolDetector:
                 SAME_CLASS_MASK_CONTAINMENT_THRESHOLD,
                 boxes_xyxy=boxes[keep_indices],
                 prefer_larger_bbox_class_ids=self._bipolar_model_indices,
+                larger_bbox_max_confidence_gap=(
+                    BIPOLAR_LARGER_BBOX_MAX_CONFIDENCE_GAP
+                ),
             )
             keep_indices = keep_indices[containment_keep]
         instances: list[DetectionInstance] = []
@@ -368,6 +372,7 @@ def same_class_mask_containment_indices(
     *,
     boxes_xyxy: np.ndarray | None = None,
     prefer_larger_bbox_class_ids: set[int] | None = None,
+    larger_bbox_max_confidence_gap: float = 0.0,
 ) -> np.ndarray:
     """Suppress a lower-confidence same-class mask contained by a kept mask.
 
@@ -375,8 +380,9 @@ def same_class_mask_containment_indices(
     second prediction covers only its handle or shaft.  Mask containment
     catches that duplicate without lowering the global bbox-NMS threshold,
     which could suppress nearby but distinct instruments.  Selected classes
-    may rank contained candidates by bbox area before confidence; Bipolar uses
-    this path so the prediction representing the complete tool is retained.
+    may use bbox area as a tie-break among near-equal confidence candidates;
+    Bipolar uses this path so a clearly lower-confidence large over-segmentation
+    does not replace a stronger compact prediction.
     """
     ids = np.asarray(class_ids, dtype=int).reshape(-1)
     scores = np.asarray(confidences, dtype=np.float64).reshape(-1)
@@ -384,6 +390,8 @@ def same_class_mask_containment_indices(
         raise ValueError("masks, class_ids, and confidences must have equal length")
     if not 0.0 <= containment_threshold <= 1.0:
         raise ValueError("containment_threshold must be in [0, 1]")
+    if not 0.0 <= larger_bbox_max_confidence_gap <= 1.0:
+        raise ValueError("larger_bbox_max_confidence_gap must be in [0, 1]")
     if not masks:
         return np.empty(0, dtype=int)
     shapes = {np.asarray(mask).shape for mask in masks}
@@ -406,13 +414,22 @@ def same_class_mask_containment_indices(
             0.0,
             boxes[:, 3] - boxes[:, 1],
         )
+    best_score_by_class = {
+        int(class_id): float(np.max(scores[ids == class_id]))
+        for class_id in np.unique(ids)
+    }
+
+    def priority(index: int) -> tuple[float, float, float, int]:
+        if ids[index] in preferred_classes:
+            gap = best_score_by_class[int(ids[index])] - float(scores[index])
+            if gap <= larger_bbox_max_confidence_gap:
+                return (0.0, -bbox_areas[index], -scores[index], index)
+            return (1.0, -scores[index], -bbox_areas[index], index)
+        return (0.0, -scores[index], -bbox_areas[index], index)
+
     order = sorted(
         range(len(masks)),
-        key=lambda index: (
-            (-bbox_areas[index], -scores[index], index)
-            if ids[index] in preferred_classes
-            else (-scores[index], -bbox_areas[index], index)
-        ),
+        key=priority,
     )
     keep: list[int] = []
     for value in order:

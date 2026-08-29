@@ -26,10 +26,6 @@ from .types import (
 
 
 POSE_MODE = "PLANAR_4DOF_WITH_NORMAL_PRIOR"
-BIPOLAR_BLACK_LAB_L_THRESHOLD = 90.0
-BIPOLAR_DARK_HANDLE_MAXIMUM_MEDIAN_L = 65.0
-BIPOLAR_DARK_HANDLE_MINIMUM_L_DIFFERENCE = 30.0
-BIPOLAR_DARK_HANDLE_MINIMUM_BLACK_FRACTION = 0.60
 WIRE_CONTEXT_OUTWARD_LENGTH_FRACTION = 0.65
 WIRE_CONTEXT_INWARD_ATTACHMENT_FRACTION = 0.25
 WIRE_CONTEXT_HALF_WIDTH_FRACTION = 0.38
@@ -240,61 +236,6 @@ def _external_wire_handle_evidence(
         "low_extent": float(low_result["extent"]),
         "high_extent": float(high_result["extent"]),
         "confidence": best_score,
-    }
-
-
-def _bipolar_dark_handle_evidence(
-    mask: np.ndarray,
-    image_bgr: np.ndarray,
-    mean_uv: np.ndarray,
-    direction_uv: np.ndarray,
-    low: float,
-    high: float,
-) -> dict[str, Any] | None:
-    """Return conservative endpoint darkness evidence inside the tool mask."""
-    eroded = cv2.erode(
-        mask.astype(np.uint8),
-        np.ones((3, 3), dtype=np.uint8),
-    ).astype(bool)
-    if int(np.count_nonzero(eroded)) < 50:
-        eroded = mask
-    ys, xs = np.nonzero(eroded)
-    if len(xs) < 20:
-        return None
-    uv = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
-    projection = (uv - mean_uv) @ direction_uv
-    span = max(float(high - low), 1e-6)
-    low_band = projection <= low + 0.20 * span
-    high_band = projection >= high - 0.20 * span
-    if int(np.count_nonzero(low_band)) < 10 or int(np.count_nonzero(high_band)) < 10:
-        return None
-
-    lab_l = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)[:, :, 0]
-    low_values = lab_l[ys[low_band], xs[low_band]].astype(np.float64)
-    high_values = lab_l[ys[high_band], xs[high_band]].astype(np.float64)
-    low_median = float(np.median(low_values))
-    high_median = float(np.median(high_values))
-    darker_end = "low" if low_median <= high_median else "high"
-    darker_values = low_values if darker_end == "low" else high_values
-    darker_median = min(low_median, high_median)
-    l_difference = abs(high_median - low_median)
-    black_fraction = float(
-        np.mean(darker_values <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
-    )
-    accepted = bool(
-        darker_median <= BIPOLAR_DARK_HANDLE_MAXIMUM_MEDIAN_L
-        and l_difference >= BIPOLAR_DARK_HANDLE_MINIMUM_L_DIFFERENCE
-        and black_fraction >= BIPOLAR_DARK_HANDLE_MINIMUM_BLACK_FRACTION
-    )
-    confidence = min(l_difference / 80.0, 1.0) * black_fraction
-    return {
-        "accepted": accepted,
-        "darker_end": darker_end,
-        "low_median_l": low_median,
-        "high_median_l": high_median,
-        "l_difference": l_difference,
-        "black_fraction": black_fraction,
-        "confidence": float(confidence),
     }
 
 
@@ -570,29 +511,7 @@ def _pca_endpoints(
             if sign_policy == "bovie_tip_taper" and image_bgr is not None
             else None
         )
-        darkness = (
-            _bipolar_dark_handle_evidence(
-                mask,
-                image_bgr,
-                mean,
-                direction,
-                float(low),
-                float(high),
-            )
-            if sign_policy == "bipolar_connector_taper" and image_bgr is not None
-            else None
-        )
-        # Bipolar uses its black proximal handle as the primary sign cue and
-        # deliberately ignores external-wire geometry. Bovie retains its
-        # external-wire cue.
-        if darkness is not None and darkness["accepted"]:
-            if darkness["darker_end"] == "low":
-                direction *= -1
-                low, high = -high, -low
-                low_mass, high_mass = high_mass, low_mass
-            confidence = float(darkness["confidence"])
-            sign_source = "bipolar_dark_handle"
-        elif wire is not None and wire["accepted"]:
+        if wire is not None and wire["accepted"]:
             if wire["handle_end"] == "low":
                 direction *= -1
                 low, high = -high, -low
@@ -961,9 +880,7 @@ class PlanarPoseEstimator:
                 "POSITIVE_Y_IMAGE_DIRECTION_"
                 f"{self.config.positive_y_image_direction.upper()}"
             )
-        if endpoint["sign_source"] == "bipolar_dark_handle":
-            flags.append("BIPOLAR_DARK_HANDLE")
-        elif endpoint["sign_source"] == "bovie_external_wire_handle":
+        if endpoint["sign_source"] == "bovie_external_wire_handle":
             flags.append("BOVIE_EXTERNAL_WIRE_HANDLE")
         elif endpoint["sign_source"] == "bipolar_taper_fallback":
             flags.append("BIPOLAR_TAPER_FALLBACK")

@@ -159,20 +159,15 @@ def test_bipolar_working_endpoint_points_to_tip_for_case_shapes(
 
 
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_bipolar_black_endpoint_has_handle_priority(quarter_turns: int) -> None:
+def test_bipolar_black_endpoint_is_ignored(quarter_turns: int) -> None:
     mask = np.zeros((52, 144), dtype=np.uint8)
     mask[10:42, 10:134] = 1
     image = np.full((*mask.shape, 3), 180, dtype=np.uint8)
     image[mask.astype(bool)] = (170, 170, 170)
     image[10:42, 10:46] = (20, 20, 20)
-    dark_handle_uv = np.array((10.0, 25.5))
-    working_tip_uv = np.array((133.0, 25.5))
     for _ in range(quarter_turns):
-        old_width = mask.shape[1]
         mask = np.rot90(mask).copy()
         image = np.rot90(image).copy()
-        dark_handle_uv = _rotate_uv_90_ccw(dark_handle_uv, old_width)
-        working_tip_uv = _rotate_uv_90_ccw(working_tip_uv, old_width)
 
     endpoints = _pca_endpoints(
         mask.astype(bool),
@@ -180,14 +175,8 @@ def test_bipolar_black_endpoint_has_handle_priority(quarter_turns: int) -> None:
         image_bgr=image,
     )
 
-    assert endpoints["sign_source"] == "bipolar_dark_handle"
-    assert np.linalg.norm(endpoints["handle_uv"] - dark_handle_uv) < np.linalg.norm(
-        endpoints["working_uv"] - dark_handle_uv
-    )
-    assert np.linalg.norm(endpoints["working_uv"] - working_tip_uv) < np.linalg.norm(
-        endpoints["handle_uv"] - working_tip_uv
-    )
-    assert endpoints["sign_confidence"] >= 0.6
+    assert endpoints["sign_source"] == "bipolar_taper_fallback"
+    assert endpoints["sign_confidence"] == pytest.approx(0.0)
 
 
 def test_bipolar_nonblack_endpoint_falls_back_to_taper() -> None:
@@ -205,7 +194,7 @@ def test_bipolar_nonblack_endpoint_falls_back_to_taper() -> None:
     assert endpoints["sign_confidence"] == pytest.approx(0.0)
 
 
-def test_bipolar_external_wire_is_ignored_without_black_handle() -> None:
+def test_bipolar_colour_and_external_wire_are_ignored() -> None:
     mask = np.zeros((100, 200), dtype=np.uint8)
     mask[40:61, 60:121] = 1
     image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
@@ -219,6 +208,7 @@ def test_bipolar_external_wire_is_ignored_without_black_handle() -> None:
         4,
         cv2.LINE_AA,
     )
+    image[40:61, 60:74] = (15, 15, 15)
 
     endpoints = _pca_endpoints(
         mask.astype(bool),
@@ -432,12 +422,8 @@ def test_bovie_tapered_endpoint_is_working_tip(quarter_turns: int) -> None:
     assert endpoints["sign_confidence"] >= 0.2
 
 
-@pytest.mark.parametrize("class_name", ["Bovie", "Bipolar Forceps"])
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_bovie_wire_and_bipolar_black_handle_priorities(
-    class_name: str,
-    quarter_turns: int,
-) -> None:
+def test_bovie_external_wire_keeps_handle_priority(quarter_turns: int) -> None:
     mask = np.zeros((100, 200), dtype=np.uint8)
     mask[40:61, 60:121] = 1
     image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
@@ -451,9 +437,8 @@ def test_bovie_wire_and_bipolar_black_handle_priorities(
         4,
         cv2.LINE_AA,
     )
-    # The cues intentionally conflict: Bovie follows its external wire, while
-    # Bipolar must treat its black endpoint as the handle before considering
-    # the wire.
+    # Bovie continues to use its external wire even though Bipolar ignores
+    # both wire and colour cues.
     image[40:61, 60:74] = (15, 15, 15)
     handle_uv = np.array((120.0, 50.0))
     working_tip_uv = np.array((60.0, 50.0))
@@ -466,25 +451,17 @@ def test_bovie_wire_and_bipolar_black_handle_priorities(
 
     endpoints = _pca_endpoints(
         mask.astype(bool),
-        _sign_policy(class_name),
+        _sign_policy("Bovie"),
         image_bgr=image,
     )
 
-    expected_handle_uv = (
-        handle_uv if class_name == "Bovie" else working_tip_uv
-    )
-    expected_tip_uv = working_tip_uv if class_name == "Bovie" else handle_uv
-    assert endpoints["sign_source"] == (
-        "bovie_external_wire_handle"
-        if class_name == "Bovie"
-        else "bipolar_dark_handle"
-    )
+    assert endpoints["sign_source"] == "bovie_external_wire_handle"
     assert np.linalg.norm(
-        endpoints["handle_uv"] - expected_handle_uv
-    ) < np.linalg.norm(endpoints["working_uv"] - expected_handle_uv)
+        endpoints["handle_uv"] - handle_uv
+    ) < np.linalg.norm(endpoints["working_uv"] - handle_uv)
     assert np.linalg.norm(
-        endpoints["working_uv"] - expected_tip_uv
-    ) < np.linalg.norm(endpoints["handle_uv"] - expected_tip_uv)
+        endpoints["working_uv"] - working_tip_uv
+    ) < np.linalg.norm(endpoints["handle_uv"] - working_tip_uv)
     assert endpoints["sign_confidence"] >= 0.6
 
 

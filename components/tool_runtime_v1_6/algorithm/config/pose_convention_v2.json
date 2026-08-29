@@ -53,7 +53,7 @@
       "name": "Bipolar Forceps",
       "negative_y_endpoint": "rigid proximal connector center",
       "positive_y_endpoint": "electrode-tip midpoint",
-      "initial_sign_estimator": "black terminal colour identifies the proximal handle; external wire geometry is ignored; otherwise the stronger terminal taper identifies the connector handle; ambiguous masks use the larger terminal mass with low-confidence status",
+      "initial_sign_estimator": "colour and external wire geometry are ignored; the stronger terminal taper identifies the connector handle; ambiguous masks use the larger terminal mass with low-confidence status",
       "excluded_geometry": ["cable", "hand"]
     },
     {

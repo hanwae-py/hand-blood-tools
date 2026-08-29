@@ -107,7 +107,7 @@ def test_detector_config_defaults_to_xlarge():
     assert config.model_size == "xlarge"
 
 
-def test_bipolar_containment_prefers_larger_bbox_over_confidence():
+def test_bipolar_containment_uses_larger_bbox_for_near_equal_confidence():
     from pnu_surgical_tool.rfdetr_inference import (
         same_class_mask_containment_indices,
     )
@@ -120,12 +120,35 @@ def test_bipolar_containment_prefers_larger_bbox_over_confidence():
     keep = same_class_mask_containment_indices(
         [complete, partial],
         np.asarray([4, 4]),
-        np.asarray([0.45, 0.90]),
+        np.asarray([0.88, 0.90]),
         boxes_xyxy=np.asarray([[0, 0, 8, 12], [2, 3, 6, 9]], dtype=float),
         prefer_larger_bbox_class_ids={4},
+        larger_bbox_max_confidence_gap=0.03,
     )
 
     assert keep.tolist() == [0]
+
+
+def test_bipolar_containment_rejects_low_confidence_larger_bbox():
+    from pnu_surgical_tool.rfdetr_inference import (
+        same_class_mask_containment_indices,
+    )
+
+    complete = np.zeros((12, 8), dtype=bool)
+    complete[1:11, 1:7] = True
+    partial = np.zeros_like(complete)
+    partial[3:9, 2:6] = True
+
+    keep = same_class_mask_containment_indices(
+        [complete, partial],
+        np.asarray([4, 4]),
+        np.asarray([0.70, 0.90]),
+        boxes_xyxy=np.asarray([[0, 0, 8, 12], [2, 3, 6, 9]], dtype=float),
+        prefer_larger_bbox_class_ids={4},
+        larger_bbox_max_confidence_gap=0.03,
+    )
+
+    assert keep.tolist() == [1]
 
 
 def test_non_bipolar_containment_still_prefers_confidence():
@@ -144,6 +167,7 @@ def test_non_bipolar_containment_still_prefers_confidence():
         np.asarray([0.45, 0.90]),
         boxes_xyxy=np.asarray([[0, 0, 8, 12], [2, 3, 6, 9]], dtype=float),
         prefer_larger_bbox_class_ids={4},
+        larger_bbox_max_confidence_gap=0.03,
     )
 
     assert keep.tolist() == [1]
