@@ -28,6 +28,33 @@ from .types import (
 POSE_MODE = "PLANAR_4DOF_WITH_NORMAL_PRIOR"
 
 
+def _terminal_taper_scores(
+    projection: np.ndarray,
+    low: float,
+    high: float,
+) -> tuple[float, float]:
+    """Measure contraction from each inner shoulder to its terminal end."""
+    span = max(float(high - low), 1e-6)
+    band = 0.10 * span
+    low_terminal = int(np.sum((projection >= low) & (projection < low + band)))
+    low_shoulder = int(
+        np.sum((projection >= low + band) & (projection < low + 2.0 * band))
+    )
+    high_terminal = int(
+        np.sum((projection <= high) & (projection > high - band))
+    )
+    high_shoulder = int(
+        np.sum((projection <= high - band) & (projection > high - 2.0 * band))
+    )
+    low_taper = max(float(low_shoulder - low_terminal), 0.0) / max(
+        float(low_shoulder), 1.0
+    )
+    high_taper = max(float(high_shoulder - high_terminal), 0.0) / max(
+        float(high_shoulder), 1.0
+    )
+    return low_taper, high_taper
+
+
 def _pca_endpoints(mask: np.ndarray, sign_policy: str) -> dict[str, Any]:
     ys, xs = np.where(mask)
     if len(xs) < 20:
@@ -63,6 +90,33 @@ def _pca_endpoints(mask: np.ndarray, sign_policy: str) -> dict[str, Any]:
             low, high = -high, -low
             low_mass, high_mass = high_mass, low_mass
         confidence = abs(high_mass - low_mass) / max(high_mass + low_mass, 1)
+    elif sign_policy in ("adson_tip_taper", "bipolar_connector_taper"):
+        low_taper, high_taper = _terminal_taper_scores(projection, low, high)
+        taper_strength = max(low_taper, high_taper)
+        if abs(low_taper - high_taper) < 1e-6:
+            # Both tools use the larger terminal mass as the handle fallback.
+            # Confidence remains zero because taper did not disambiguate it.
+            if low_mass > high_mass:
+                direction *= -1
+                low, high = -high, -low
+                low_mass, high_mass = high_mass, low_mass
+            confidence = 0.0
+        else:
+            stronger_taper_is_handle = sign_policy == "bipolar_connector_taper"
+            should_flip = (
+                low_taper > high_taper
+                if stronger_taper_is_handle
+                else high_taper > low_taper
+            )
+            if should_flip:
+                direction *= -1
+                low, high = -high, -low
+                low_mass, high_mass = high_mass, low_mass
+            taper_separation = abs(low_taper - high_taper) / max(
+                low_taper + high_taper,
+                1e-6,
+            )
+            confidence = taper_separation * min(taper_strength / 0.10, 1.0)
     else:
         raise ValueError(f"Unknown sign policy: {sign_policy}")
 
@@ -206,7 +260,9 @@ def _sign_policy(class_name: str) -> str:
     if class_name == "Army-Navy Retractor":
         return "cam4_positive_axis"
     if class_name == "Adson Forceps":
-        return "smaller_end_is_handle"
+        return "adson_tip_taper"
+    if class_name == "Bipolar Forceps":
+        return "bipolar_connector_taper"
     return "larger_end_is_handle"
 
 
