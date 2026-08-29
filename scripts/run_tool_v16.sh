@@ -2,8 +2,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TOOL_MODEL_SIZE_OVERRIDE="${TOOL_MODEL_SIZE:-}"
+TOOL_MODEL_VERSION_OVERRIDE="${TOOL_MODEL_VERSION:-}"
 TOOL_CONFIDENCE_THRESHOLD_OVERRIDE="${TOOL_CONFIDENCE_THRESHOLD:-}"
 TOOL_ROI_PROFILE_OVERRIDE="${TOOL_ROI_PROFILE:-}"
+TOOL_TRT_SERVER_SOCKET_OVERRIDE="${TOOL_TRT_SERVER_SOCKET:-}"
+TOOL_TRT_REQUEST_TIMEOUT_SEC="${TOOL_TRT_REQUEST_TIMEOUT_SEC:-10.0}"
 source "${ROOT}/scripts/perception_runtime_env.sh" local-fast
 source "${ROOT}/scripts/select_cam.sh"
 if [[ -n "${TOOL_MODEL_SIZE_OVERRIDE}" ]]; then
@@ -16,40 +19,47 @@ TOOL="${ROOT}/components/tool_runtime_v1_6"
 CAM="cam_4"
 CAM_OVERRIDES=()
 PARAM_FILE_ARGS=()
+DEPTH_GEOMETRY_ARGS=()
+TRT_ARGS=()
 
-TOOL_MODEL_SIZE="${TOOL_MODEL_SIZE:-small}"
-TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE:-none}"
+# Prefer accuracy first. Operators may step down to large, then medium, when
+# measured latency requires it.
+TOOL_MODEL_SIZE="${TOOL_MODEL_SIZE:-xlarge}"
+if [[ -n "${TOOL_TRT_SERVER_SOCKET_OVERRIDE}" && "${TOOL_MODEL_SIZE}" != "xlarge" ]]; then
+  echo "Shared TensorRT mode requires the common xlarge checkpoint; overriding TOOL_MODEL_SIZE=${TOOL_MODEL_SIZE} with xlarge" >&2
+  TOOL_MODEL_SIZE=xlarge
+fi
 case "${TOOL_MODEL_SIZE}" in
   small)
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_SMALL:-${TOOL_CHECKPOINT:-}}"
     TOOL_CHECKPOINT_COLOR_ORDER="BGR"
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="true"
-    TOOL_MODEL_VERSION="cam4-rfdetr-seg-small-regular-resume-best"
+    TOOL_MODEL_VERSION="${TOOL_MODEL_VERSION_OVERRIDE:-${TOOL_MODEL_VERSION_SMALL:-cam4-rfdetr-seg-small-regular-resume-best}}"
     TOOL_MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   medium)
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_MEDIUM:-}"
     TOOL_CHECKPOINT_COLOR_ORDER="RGB"
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="false"
-    TOOL_MODEL_VERSION="cam4-rfdetr-seg-medium-20260825-best"
+    TOOL_MODEL_VERSION="${TOOL_MODEL_VERSION_OVERRIDE:-${TOOL_MODEL_VERSION_MEDIUM:-cam4-rfdetr-seg-medium-20260825-best}}"
     TOOL_MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   large)
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_LARGE:-}"
     TOOL_CHECKPOINT_COLOR_ORDER="RGB"
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="false"
-    TOOL_MODEL_VERSION="cam4-rfdetr-seg-large-20260825-best"
+    TOOL_MODEL_VERSION="${TOOL_MODEL_VERSION_OVERRIDE:-${TOOL_MODEL_VERSION_LARGE:-cam4-rfdetr-seg-large-20260825-best}}"
     TOOL_MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   xlarge)
     TOOL_MODEL_CHECKPOINT="${TOOL_CHECKPOINT_XLARGE:-}"
     TOOL_CHECKPOINT_COLOR_ORDER="RGB"
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="false"
-    TOOL_MODEL_VERSION="rfdetr-seg-xlarge-selected-external-0825-conf030"
+    TOOL_MODEL_VERSION="${TOOL_MODEL_VERSION_OVERRIDE:-${TOOL_MODEL_VERSION_XLARGE:-rfdetr-seg-xlarge-selected-external-0825-conf030}}"
     TOOL_MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   *)
-    echo "TOOL_MODEL_SIZE must be small, medium, large, or xlarge; got: ${TOOL_MODEL_SIZE}" >&2
+    echo "TOOL_MODEL_SIZE must be xlarge, large, medium, or small; got: ${TOOL_MODEL_SIZE}" >&2
     exit 2
     ;;
 esac
@@ -62,9 +72,9 @@ fi
 configure_tool_camera() {
   apply_ingress_cam "$1"
   case "${CAM}" in
-    cam_3|cam_4) : ;;
+    cam_3|cam_4|head) : ;;
     *)
-      echo "Tool pose is configured only for cam_3 or cam_4, got: ${CAM}" >&2
+      echo "Tool pose is configured only for cam_3, cam_4, or head; got: ${CAM}" >&2
       return 2
       ;;
   esac
@@ -72,11 +82,15 @@ configure_tool_camera() {
     TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_OVERRIDE}"
   elif [[ "${CAM}" == "cam_3" ]]; then
     TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_CAM3:-${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}}"
+  elif [[ "${CAM}" == "head" ]]; then
+    TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_HEAD:-${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}}"
   else
     TOOL_MODEL_THRESHOLD="${TOOL_CONFIDENCE_THRESHOLD_CAM4:-${TOOL_CONFIDENCE_THRESHOLD:-${TOOL_MODEL_DEFAULT_THRESHOLD}}}"
   fi
   if [[ "${CAM}" == "cam_3" ]]; then
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="${TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM3:-${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}}"
+  elif [[ "${CAM}" == "head" ]]; then
+    TOOL_ENABLE_CLASS_AGNOSTIC_NMS="${TOOL_ENABLE_CLASS_AGNOSTIC_NMS_HEAD:-${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}}"
   else
     TOOL_ENABLE_CLASS_AGNOSTIC_NMS="${TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM4:-${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}}"
   fi
@@ -88,6 +102,15 @@ configure_tool_camera() {
       ;;
   esac
   local camera_profile="${CAM/_/}"
+  if [[ -n "${TOOL_ROI_PROFILE_OVERRIDE}" ]]; then
+    TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE_OVERRIDE}"
+  elif [[ "${CAM}" == "cam_3" ]]; then
+    TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE_CAM3:-${TOOL_ROI_PROFILE:-none}}"
+  elif [[ "${CAM}" == "head" ]]; then
+    TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE_HEAD:-head_live_tray}"
+  else
+    TOOL_ROI_PROFILE="${TOOL_ROI_PROFILE_CAM4:-${TOOL_ROI_PROFILE:-none}}"
+  fi
   local parameter_file="${TOOL}/ros2_ws/src/pnu_surgical_perception/config/${camera_profile}_live_native_pose.yaml"
   if [[ ! -f "${parameter_file}" ]]; then
     echo "Missing Tool pose parameter file: ${parameter_file}" >&2
@@ -110,12 +133,25 @@ configure_tool_camera() {
     fi
     PARAM_FILE_ARGS+=(--params-file "${roi_profile_file}")
   fi
+  if [[ "${CAM}" == "head" ]]; then
+    DEPTH_GEOMETRY_ARGS=(
+      -p "require_extrinsics_topic:=false"
+      -p "depth_aligned_to_color:=true"
+    )
+  else
+    DEPTH_GEOMETRY_ARGS=(
+      -p "extrinsics_topic:=${EXTRINSICS_TOPIC}"
+      -p "require_extrinsics_topic:=true"
+      -p "depth_aligned_to_color:=false"
+    )
+  fi
   CAM_OVERRIDES=(
     -r "__node:=native_depth_tool_pose_${CAM}"
     -p "camera:=${CAM}"
     -p "view:=${CAM}"
     -p "pose_topic:=/perception/${CAM}/tool/poses"
     -p "observation_topic:=/perception/${CAM}/tool/observations"
+    -p "class_mask_topic_prefix:=/perception/${CAM}/tool/masks"
     -p "overlay_topic:=/perception/${CAM}/tool/overlay/compressed"
     -p "pose_overlay_topic:=/perception/${CAM}/tool/pose_overlay/compressed"
     -p "diagnostics_topic:=/perception/${CAM}/tool/diagnostics"
@@ -124,7 +160,11 @@ configure_tool_camera() {
 }
 
 if [[ "${1:-}" == "help" || "${1:-}" == "--help" ]]; then
-  echo "usage: TOOL_MODEL_SIZE=small|medium|large|xlarge TOOL_ROI_PROFILE=none|<camera_profile> bash scripts/run_tool_v16.sh [cam_3|cam_4]" >&2
+  echo "usage: TOOL_MODEL_SIZE=xlarge|large|medium|small TOOL_ROI_PROFILE=none|<camera_profile> bash scripts/run_tool_v16.sh [cam_3|cam_4|head]" >&2
+  echo "set TOOL_TRT_SERVER_SOCKET to use the common dynamic-batch xlarge TensorRT server" >&2
+  echo "config/system.env may set TOOL_ROI_PROFILE_CAM3, TOOL_ROI_PROFILE_CAM4, and TOOL_ROI_PROFILE_HEAD independently" >&2
+  echo "config/system.env may set TOOL_CONFIDENCE_THRESHOLD_CAM3, TOOL_CONFIDENCE_THRESHOLD_CAM4, and TOOL_CONFIDENCE_THRESHOLD_HEAD independently" >&2
+  echo "config/system.env may set TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM3, TOOL_ENABLE_CLASS_AGNOSTIC_NMS_CAM4, and TOOL_ENABLE_CLASS_AGNOSTIC_NMS_HEAD independently" >&2
   set +u
   source "/opt/ros/${ROS_DISTRO}/setup.bash"
   set -u
@@ -138,6 +178,15 @@ else
   configure_tool_camera "${CAM}"
 fi
 echo "Tool ROI profile: ${TOOL_ROI_PROFILE}" >&2
+if [[ -n "${TOOL_TRT_SERVER_SOCKET_OVERRIDE}" ]]; then
+  echo "Tool detector backend: shared TensorRT batch=1..3 socket=${TOOL_TRT_SERVER_SOCKET_OVERRIDE}" >&2
+  TRT_ARGS=(
+    -p "trt_server_socket:=${TOOL_TRT_SERVER_SOCKET_OVERRIDE}"
+    -p "trt_request_timeout_sec:=${TOOL_TRT_REQUEST_TIMEOUT_SEC}"
+  )
+else
+  echo "Tool detector backend: local ${TOOL_MODEL_SIZE}" >&2
+fi
 set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${TOOL}/ros2_ws/install/setup.bash"
@@ -153,14 +202,14 @@ exec "${RFDETR_PYTHON}" \
   -p "model_size:=${TOOL_MODEL_SIZE}" \
   -p "checkpoint_color_order:=${TOOL_CHECKPOINT_COLOR_ORDER}" \
   -p "model_version:=${TOOL_MODEL_VERSION}" \
+  "${TRT_ARGS[@]}" \
   -p "confidence_threshold:=${TOOL_MODEL_THRESHOLD}" \
   -p "enable_class_agnostic_nms:=${TOOL_ENABLE_CLASS_AGNOSTIC_NMS}" \
   -p "rgb_topic:=${COLOR_TOPIC}" \
   -p "color_camera_info_topic:=${COLOR_CAMERA_INFO_TOPIC}" \
   -p "depth_topic:=${DEPTH_TOPIC}" \
   -p "depth_camera_info_topic:=${DEPTH_CAMERA_INFO_TOPIC}" \
-  -p "extrinsics_topic:=${EXTRINSICS_TOPIC}" \
   -p "require_depth:=true" \
-  -p "require_extrinsics_topic:=true" \
+  "${DEPTH_GEOMETRY_ARGS[@]}" \
   "${CAM_OVERRIDES[@]}" \
   "$@"

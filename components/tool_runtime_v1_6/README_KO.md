@@ -20,6 +20,8 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 - 다운로드: [Google Drive 폴더](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   받은 `.pth` 경로와 `TOOL_MODEL_SIZE`를 `config/system.env`에 설정한다.
 - 기본 confidence threshold: 0.30
+- 정확도 우선 기본값: XLarge. 측정한 지연이 허용 범위를 넘을 때만
+  Large, 이후 Medium 순으로 낮춘다.
 - Small: 기존 BGR 입력과 class-agnostic bbox NMS IoU 0.80 유지
 - Medium/Large/XLarge: RGB 입력, 별도 NMS 없음
 - rosbag/live 화각별 ROI 프로파일과 mask-overlap ROI 필터
@@ -48,3 +50,15 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 
     TOOL_MODEL_SIZE=xlarge TOOL_ROI_PROFILE=cam4_live_room1_mayo_20260825 \
       bash scripts/run_tool_v16.sh cam_4
+
+라이브 CAM3/CAM4 Tool ROI는 각 카메라 화면에서 polygon을 직접 지정할 수 있다.
+
+    bash scripts/run_tool_roi_selector.sh cam_3
+    bash scripts/run_tool_roi_selector.sh cam_4
+
+동시 실행 환경에서는 `config/system.env`의 `TOOL_ROI_PROFILE_CAM3`와
+`TOOL_ROI_PROFILE_CAM4`에 저장된 프로파일 이름을 각각 설정한다.
+Taskplanner Final Overlay는 두 Tool worker와 같은 프로파일을 읽어 실제
+인식 허용 polygon을 각 카메라 영상에 `TOOL ROI`로 표시한다.
+현재 라이브 CAM3/CAM4 프로파일은 mask 면적의 70% 이상이 ROI 안에 있고
+mask centroid도 안쪽일 때만 검출을 승인한다.

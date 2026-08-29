@@ -1,0 +1,32 @@
+[Unit]
+Description=Taskplanner multi-view Hand quality selector
+Documentation=file://%h/projects/hand-blood-tools/scripts/run_multiview_hand_fusion.sh
+Requires=taskplanner-perception-ingress.service
+After=taskplanner-perception-hand-cam1-ingress.service taskplanner-perception-hand-cam3-ingress.service taskplanner-perception-cam4-ingress.service
+PartOf=taskplanner-perception-ingress.service
+ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_multiview_hand_fusion.sh
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/hand-blood-tools
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+Environment=PERCEPTION_DDS_PROFILE=local-fast
+Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
+Environment=PYTHONUNBUFFERED=1
+# The three independent 15 Hz cameras are not hardware-triggered.  The live
+# 2026-08-25 CAM1/CAM3/CAM4 phase audit measured p95 source offsets below
+# 12 ms. A 20 ms gate admits the same capture epoch while rejecting adjacent
+# 15 Hz frames. Keep 450 ms for the measured RGB-D inference skew.
+# CAM1 is outside the useful hand workspace, so the active selector uses only
+# CAM3 and CAM4 and creates no CAM1 subscriptions.
+ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_multiview_hand_fusion.sh -p cameras:="[cam_3,cam_4]" -p max_source_delta_ms:=20.0 -p max_observation_age_sec:=0.45
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=taskplanner-perception-stack.target

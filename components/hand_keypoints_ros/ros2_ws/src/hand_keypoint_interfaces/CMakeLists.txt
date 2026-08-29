@@ -11,6 +11,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PalmPose6D.msg"
   "msg/Hand.msg"
   "msg/HandKeypoints.msg"
+  "msg/HandGesture.msg"
+  "msg/HandGestureArray.msg"
+  "msg/HandFacing.msg"
+  "msg/HandFacingArray.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

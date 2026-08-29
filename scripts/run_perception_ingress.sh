@@ -20,18 +20,35 @@ run_one() {
 }
 
 case "${1:-cam_4}" in
+  cam_1|cam1|1) exec bash -c '"$0" _one cam_1' "$0" ;;
+  cam_2|cam2|2) exec bash -c '"$0" _one cam_2' "$0" ;;
   cam_3|cam3|3) exec bash -c '"$0" _one cam_3' "$0" ;;
   cam_4|cam4|4) exec bash -c '"$0" _one cam_4' "$0" ;;
+  flir) exec bash -c '"$0" _one flir' "$0" ;;
   _one) run_one "${2:?camera required}" ;;
   both)
     run_one cam_3 & pid3=$!
     run_one cam_4 & pid4=$!
     cleanup() { kill "${pid3}" "${pid4}" 2>/dev/null || true; wait "${pid3}" "${pid4}" 2>/dev/null || true; }
     trap cleanup EXIT INT TERM
-    wait "${pid3}" "${pid4}"
+    wait -n "${pid3}" "${pid4}"
+    exit 1
+    ;;
+  all)
+    run_one cam_1 & pid1=$!
+    run_one cam_3 & pid3=$!
+    run_one cam_4 & pid4=$!
+    run_one flir & pidf=$!
+    cleanup() {
+      kill "${pid1}" "${pid3}" "${pid4}" "${pidf}" 2>/dev/null || true
+      wait "${pid1}" "${pid3}" "${pid4}" "${pidf}" 2>/dev/null || true
+    }
+    trap cleanup EXIT INT TERM
+    wait -n "${pid1}" "${pid3}" "${pid4}" "${pidf}"
+    exit 1
     ;;
   *)
-    echo "usage: $0 [cam_4|cam_3|both]" >&2
+    echo "usage: $0 [cam_1|cam_2|cam_3|cam_4|flir|both|all]" >&2
     exit 2
     ;;
 esac

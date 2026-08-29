@@ -11,3 +11,8 @@ external_assets/
 *.h5
 *.avi
 *.mcap
+.codex-backups/
+models/
+*.bak-*
+*.orig
+*.pre_cpu_device_fix

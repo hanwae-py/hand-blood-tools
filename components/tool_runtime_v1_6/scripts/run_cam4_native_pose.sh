@@ -12,38 +12,39 @@ ALGORITHM_SOURCE="${BUNDLE_ROOT}/algorithm/src"
 ONTOLOGY="${BUNDLE_ROOT}/algorithm/model/ontology.json"
 PARAMETERS="${BUNDLE_ROOT}/ros2_ws/src/pnu_surgical_perception/config/cam4_reference_mcap_native_pose.yaml"
 
-MODEL_SIZE="${TOOL_MODEL_SIZE:-small}"
+# Prefer accuracy first; use large, then medium only after a latency review.
+MODEL_SIZE="${TOOL_MODEL_SIZE:-xlarge}"
 case "${MODEL_SIZE}" in
   small)
     CHECKPOINT="${TOOL_CHECKPOINT_SMALL:-${TOOL_CHECKPOINT:-${BUNDLE_ROOT}/algorithm/model/cam4_rfdetr_seg_small_regular_resume_best.pth}}"
     CHECKPOINT_COLOR_ORDER="BGR"
     ENABLE_CLASS_AGNOSTIC_NMS="true"
-    MODEL_VERSION="cam4-rfdetr-seg-small-regular-resume-best"
+    MODEL_VERSION="${TOOL_MODEL_VERSION:-${TOOL_MODEL_VERSION_SMALL:-cam4-rfdetr-seg-small-regular-resume-best}}"
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   medium)
     CHECKPOINT="${TOOL_CHECKPOINT_MEDIUM:-${BUNDLE_ROOT}/algorithm/model/medium_best.pth}"
     CHECKPOINT_COLOR_ORDER="RGB"
     ENABLE_CLASS_AGNOSTIC_NMS="false"
-    MODEL_VERSION="cam4-rfdetr-seg-medium-20260825-best"
+    MODEL_VERSION="${TOOL_MODEL_VERSION:-${TOOL_MODEL_VERSION_MEDIUM:-cam4-rfdetr-seg-medium-20260825-best}}"
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   large)
     CHECKPOINT="${TOOL_CHECKPOINT_LARGE:-${BUNDLE_ROOT}/algorithm/model/large_best.pth}"
     CHECKPOINT_COLOR_ORDER="RGB"
     ENABLE_CLASS_AGNOSTIC_NMS="false"
-    MODEL_VERSION="cam4-rfdetr-seg-large-20260825-best"
+    MODEL_VERSION="${TOOL_MODEL_VERSION:-${TOOL_MODEL_VERSION_LARGE:-cam4-rfdetr-seg-large-20260825-best}}"
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   xlarge)
     CHECKPOINT="${TOOL_CHECKPOINT_XLARGE:-${BUNDLE_ROOT}/algorithm/model/checkpoint_selected_external_0825_holdout_conf030.pth}"
     CHECKPOINT_COLOR_ORDER="RGB"
     ENABLE_CLASS_AGNOSTIC_NMS="false"
-    MODEL_VERSION="rfdetr-seg-xlarge-selected-external-0825-conf030"
+    MODEL_VERSION="${TOOL_MODEL_VERSION:-${TOOL_MODEL_VERSION_XLARGE:-rfdetr-seg-xlarge-selected-external-0825-conf030}}"
     MODEL_DEFAULT_THRESHOLD="0.30"
     ;;
   *)
-    echo "TOOL_MODEL_SIZE must be small, medium, large, or xlarge; got: ${MODEL_SIZE}" >&2
+    echo "TOOL_MODEL_SIZE must be xlarge, large, medium, or small; got: ${MODEL_SIZE}" >&2
     exit 2
     ;;
 esac

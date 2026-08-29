@@ -67,7 +67,6 @@ def test_camera_info_and_extrinsics_keep_their_separate_reliable_contracts():
     local_info_writer = ingress_camera_info_qos()
     for reader in (
         tool_camera_info_qos(),
-        hand_camera_info_qos(),
         blood_camera_info_qos(),
         final_camera_info_qos(),
     ):
@@ -75,6 +74,13 @@ def test_camera_info_and_extrinsics_keep_their_separate_reliable_contracts():
         assert reader.reliability == ReliabilityPolicy.RELIABLE
         assert reader.durability == DurabilityPolicy.VOLATILE
         assert reader.depth == 20
+    # Hand inference is intentionally latest-frame-only. Repeated per-frame
+    # CameraInfo must not accumulate behind a slow MediaPipe/depth callback.
+    hand_reader = hand_camera_info_qos()
+    _assert_compatible(local_info_writer, hand_reader)
+    assert hand_reader.reliability == ReliabilityPolicy.RELIABLE
+    assert hand_reader.durability == DurabilityPolicy.VOLATILE
+    assert hand_reader.depth == 1
     _assert_compatible(local_extrinsics_qos(), depth_to_color_extrinsics_qos())
 
 

@@ -18,6 +18,10 @@ setup(
             os.path.join("share", package_name, "config"),
             glob("config/*.yaml"),
         ),
+        (
+            os.path.join("share", package_name, "config", "roi_profiles"),
+            glob("config/roi_profiles/*.yaml"),
+        ),
     ],
     install_requires=["setuptools"],
     tests_require=["pytest"],
@@ -32,6 +36,9 @@ setup(
             "debug_overlay_compositor = pnu_surgical_perception.debug_overlay_compositor:main",
             "perception_ingress = pnu_surgical_perception.perception_ingress:main",
             "final_overlay_compositor = pnu_surgical_perception.final_overlay_compositor:main",
+            "cam4_palm_pose_transform = pnu_surgical_perception.cam4_palm_pose_transform:main",
+            "multiview_hand_fusion = pnu_surgical_perception.multiview_hand_fusion:main",
+            "operator_quad_compositor = pnu_surgical_perception.operator_quad_compositor:main",
         ],
     },
 )

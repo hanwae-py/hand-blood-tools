@@ -1,0 +1,17 @@
+# Selected from the live 1280x720 EIR Head view on 2026-08-29.
+/**:
+  ros__parameters:
+    workspace_zone: head_tray
+    workspace_roi_profile: head_live_tray
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+      - 0.19
+      - 0.39
+      - 0.52
+      - 0.32
+      - 0.69
+      - 1.0
+      - 0.13
+      - 1.0
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true

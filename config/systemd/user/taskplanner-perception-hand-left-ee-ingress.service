@@ -1,0 +1,26 @@
+[Unit]
+Description=Taskplanner EIR left end-effector RGB MediaPipe hand and gesture overlay
+Documentation=file://%h/projects/hand-blood-tools/scripts/run_hand_eir_camera.sh
+After=taskplanner-perception-left-ee-ingress.service
+Wants=taskplanner-perception-left-ee-ingress.service
+PartOf=taskplanner-perception-stack.target
+ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_hand_eir_camera.sh
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/hand-blood-tools
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+Environment=PERCEPTION_DDS_PROFILE=local-fast
+Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_hand_eir_camera.sh left_ee
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=45
+
+[Install]
+WantedBy=taskplanner-perception-stack.target

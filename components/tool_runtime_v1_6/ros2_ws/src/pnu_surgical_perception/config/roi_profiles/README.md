@@ -4,7 +4,7 @@ ROI coordinates are camera-view specific. Keep them separate from the camera tra
 calibration YAML so rosbag datasets and live ROS tests can explicitly select the matching view.
 
 Profile names must contain lowercase letters, numbers, underscores, or hyphens and must begin
-with the camera name (`cam3_` or `cam4_`). Each profile uses source-image normalized `(x, y)`
+with the camera name (`cam3_`, `cam4_`, or `head_`). Each profile uses source-image normalized `(x, y)`
 coordinates.
 
 Live ROS example:

@@ -21,6 +21,8 @@ helpers used by Hand and Blood.
 - Download: [Google Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
   Set `TOOL_MODEL_SIZE` and the matching checkpoint path in `config/system.env`.
 - Default confidence threshold: 0.30
+- Accuracy-first default: XLarge; step down to Large, then Medium only when
+  measured latency requires it
 - Small: legacy BGR input and class-agnostic bbox NMS IoU 0.80
 - Medium/Large/XLarge: RGB input and no additional NMS
 - Per-view rosbag/live ROI profiles with mask-overlap workspace filtering
@@ -49,3 +51,8 @@ for the current fixed-camera view, select it explicitly:
 
     TOOL_MODEL_SIZE=xlarge TOOL_ROI_PROFILE=cam4_live_room1_mayo_20260825 \
       bash scripts/run_tool_v16.sh cam_4
+
+The Taskplanner Final Overlay reads the same per-camera profiles as the Tool
+workers and marks each effective recognition-acceptance polygon as `TOOL ROI`.
+The current live CAM3/CAM4 profiles accept a detection only when at least 70
+percent of its mask and its mask centroid are inside the ROI.

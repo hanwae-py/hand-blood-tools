@@ -1,8 +1,11 @@
 [Unit]
 Description=Taskplanner persistent perception-only ingress stack
 Documentation=file://%h/projects/hand-blood-tools/scripts/install_perception_user_units.sh
-Wants=taskplanner-perception-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-final-overlay.service
-After=taskplanner-perception-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-final-overlay.service
+# The active operator stack uses CAM3/CAM4 Tool+Hand, EIR head/left/right
+# MediaPipe gesture overlays, and suction Blood. CAM1 Hand, FLIR Blood, and the
+# separate 2x2 re-encoder remain optional units.
+Wants=taskplanner-perception-tool-trt-server.service taskplanner-perception-ingress.service taskplanner-perception-suction-ingress.service taskplanner-perception-blood-suction-ingress.service taskplanner-perception-right-ee-ingress.service taskplanner-perception-head-ingress.service taskplanner-perception-tool-head-ingress.service taskplanner-perception-left-ee-ingress.service taskplanner-perception-hand-right-ee-ingress.service taskplanner-perception-hand-head-ingress.service taskplanner-perception-hand-left-ee-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-cam4-palm-pose.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-hand-cam3-ingress.service taskplanner-perception-hand-fusion.service taskplanner-perception-final-overlay.service
+After=taskplanner-perception-tool-trt-server.service taskplanner-perception-ingress.service taskplanner-perception-suction-ingress.service taskplanner-perception-blood-suction-ingress.service taskplanner-perception-right-ee-ingress.service taskplanner-perception-head-ingress.service taskplanner-perception-tool-head-ingress.service taskplanner-perception-left-ee-ingress.service taskplanner-perception-hand-right-ee-ingress.service taskplanner-perception-hand-head-ingress.service taskplanner-perception-hand-left-ee-ingress.service taskplanner-perception-cam4-ingress.service taskplanner-perception-cam4-palm-pose.service taskplanner-perception-tool-cam3-ingress.service taskplanner-perception-hand-cam3-ingress.service taskplanner-perception-hand-fusion.service taskplanner-perception-final-overlay.service
 
 [Install]
 WantedBy=default.target

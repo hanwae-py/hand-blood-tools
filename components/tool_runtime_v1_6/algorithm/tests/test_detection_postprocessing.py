@@ -81,6 +81,28 @@ def test_workspace_roi_filters_by_mask_overlap_and_centroid() -> None:
     assert processor.last_diagnostics["roi_rejected_instances"] == 1
 
 
+def test_majority_workspace_roi_rejects_small_partial_overlap() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            workspace_roi=WorkspaceRoiConfig(
+                enabled=True,
+                polygon_norm_xy=(
+                    0.0, 0.0, 0.55, 0.0, 0.55, 1.0, 0.0, 1.0,
+                ),
+                minimum_mask_overlap=0.7,
+                require_mask_centroid_inside=True,
+            )
+        )
+    )
+    fully_inside = instance(3, square(1, 2, 7, 8), instance_id=1)
+    crosses_boundary = instance(4, square(8, 2, 13, 8), instance_id=2)
+
+    result = processor.process(batch(fully_inside, crosses_boundary))
+
+    assert [item.frame_local_instance_id for item in result.instances] == [1]
+    assert processor.last_diagnostics["roi_rejected_instances"] == 1
+
+
 def test_roi_configuration_rejects_invalid_polygon() -> None:
     with pytest.raises(ValueError, match="three"):
         WorkspaceRoiConfig(enabled=True, polygon_norm_xy=(0.0, 0.0, 1.0, 1.0))
@@ -89,6 +111,53 @@ def test_roi_configuration_rejects_invalid_polygon() -> None:
             enabled=True,
             polygon_norm_xy=(0.0, 0.0, 1.2, 0.0, 0.0, 1.0),
         )
+
+
+def test_class_confidence_threshold_filters_only_named_class() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            class_confidence_thresholds=(("Adson Forceps", 0.45),)
+        )
+    )
+    result = processor.process(
+        batch(
+            instance(3, square(1, 2, 7, 8), 0.44, instance_id=1),
+            instance(3, square(7, 2, 13, 8), 0.45, instance_id=2),
+            instance(0, square(13, 2, 19, 8), 0.31, instance_id=3),
+        )
+    )
+
+    assert [item.frame_local_instance_id for item in result.instances] == [2, 3]
+    assert processor.last_diagnostics[
+        "class_confidence_rejected_instances"
+    ] == 1
+
+
+def test_class_confidence_threshold_rejects_invalid_value() -> None:
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        DetectionPostprocessorConfig(
+            class_confidence_thresholds=(("Adson Forceps", 1.1),)
+        )
+
+
+def test_lower_named_threshold_preserves_higher_default_for_other_classes() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            default_class_confidence_threshold=0.30,
+            class_confidence_thresholds=(("Adson Forceps", 0.25),),
+        )
+    )
+    result = processor.process(
+        batch(
+            instance(3, square(1, 2, 7, 8), 0.26, instance_id=1),
+            instance(0, square(13, 2, 19, 8), 0.29, instance_id=2),
+        )
+    )
+
+    assert [item.frame_local_instance_id for item in result.instances] == [1]
+    assert processor.last_diagnostics[
+        "class_confidence_rejected_instances"
+    ] == 1
 
 
 def test_single_frame_class_flicker_is_overridden_on_same_geometry() -> None:

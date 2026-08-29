@@ -23,7 +23,10 @@
       <FragmentSize>59000B</FragmentSize>
     </General>
     <Internal>
-      <SocketReceiveBufferSize min="64MB" max="64MB" />
+      <!-- Prefer 64 MiB when the host cap allows it, but do not make a
+           missing optional sysctl tuning fatal to the whole perception
+           stack.  Ubuntu's 1 MiB cap still permits a 2 MiB effective socket. -->
+      <SocketReceiveBufferSize min="1MB" max="64MB" />
       <!--
         BEST_EFFORT RGB-D bursts can otherwise exhaust Cyclone's default four
         simultaneous unreliable defragmentation slots.  These finite limits

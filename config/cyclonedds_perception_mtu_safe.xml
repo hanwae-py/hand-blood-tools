@@ -18,8 +18,9 @@
       <FragmentSize>1100B</FragmentSize>
     </General>
     <Internal>
-      <!-- Requires the matching rmem_max/wmem_max sysctl caps below. -->
-      <SocketReceiveBufferSize min="64MB" max="64MB" />
+      <!-- Prefer the tuned host cap without making the optional sysctl a
+           startup requirement. -->
+      <SocketReceiveBufferSize min="1MB" max="64MB" />
       <!-- Keep the LAN-safe final-overlay reader resilient to RGB-D bursts. -->
       <DefragUnreliableMaxSamples>64</DefragUnreliableMaxSamples>
       <DeliveryQueueMaxSamples>512</DeliveryQueueMaxSamples>

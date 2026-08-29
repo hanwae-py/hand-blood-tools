@@ -23,7 +23,7 @@
     workspace_zone: "mayo"
 
     confidence_threshold: 0.3
-    enable_class_agnostic_nms: true
+    enable_class_agnostic_nms: false
     class_agnostic_nms_iou: 0.8
 
     # The matching dataset ROI is loaded as a separate launch profile.

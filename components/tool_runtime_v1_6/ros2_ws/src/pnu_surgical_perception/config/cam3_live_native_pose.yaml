@@ -10,12 +10,24 @@
     extrinsics_topic: "/synced/cam_3/extrinsics/depth_to_color"
     require_depth: true
     require_extrinsics_topic: true
+    depth_aligned_to_color: false
     maximum_stamp_delta_ns: 1000000
     sync_queue_size: 8
     latest_frame_only: true
 
     pose_topic: "/perception/cam_3/tool/poses"
     observation_topic: "/perception/cam_3/tool/observations"
+    publish_class_masks: true
+    class_mask_topic_prefix: "/perception/cam_3/tool/masks"
+    class_mask_names:
+      - "Scalpel"
+      - "Allis Forceps"
+      - "Mosquito"
+      - "Adson Forceps"
+      - "Bipolar Forceps"
+      - "Bovie"
+      - "Army-Navy Retractor"
+      - "Thyroid Retractor"
     overlay_topic: "/perception/cam_3/tool/overlay/compressed"
     pose_overlay_topic: "/perception/cam_3/tool/pose_overlay/compressed"
     diagnostics_topic: "/perception/cam_3/tool/diagnostics"
@@ -24,7 +36,8 @@
     workspace_zone: "tray"
 
     confidence_threshold: 0.3
-    enable_class_agnostic_nms: true
+    adson_forceps_confidence_threshold: 0.25
+    enable_class_agnostic_nms: false
     class_agnostic_nms_iou: 0.8
 
     # CAM3 is the tray camera from the August configuration, but its August
@@ -62,6 +75,9 @@
     # live /synced depth-to-colour Extrinsics relay (2026-08-22).
     depth_scale_m_per_unit: 0.001
     depth_scale_verified: true
+    depth_registration_backend: "cuda"
+    depth_registration_allow_numpy_fallback: false
+    depth_registration_cuda_library: "/home/pnucvlab/opt/pnu-depth-registration-cuda-0.1.0-cuda12.8-sm86/lib/libpnu_depth_registration_cuda.so.1"
     minimum_depth_m: 0.05
     maximum_depth_m: 10.0
     depth_to_color_rotation_convention: "column_major"

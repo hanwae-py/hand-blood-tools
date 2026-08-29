@@ -196,7 +196,15 @@ def spatial_tool_child_frames(
 def _validated_components(
     header: Any, tool: ToolPose
 ) -> tuple[_ConstrainedPoseComponents | None, str]:
-    """Validate the constrained 4-DoF contract before tracking or TF output."""
+    """Validate that a measured planar pose is numerically representable in TF.
+
+    ``validity``, ``position_valid``, ``orientation_valid`` and
+    ``dof_observed`` are retained as quality evidence in ``ToolPoseArray``. They
+    intentionally do not gate TF: a degraded estimator result can still carry
+    the finite position and constrained quaternion shown by the pose overlay.
+    Results with no computed pose map to a zero-norm quaternion and remain
+    rejected by the structural checks below.
+    """
     parent_frame = str(getattr(header, 'frame_id', '')).strip()
     if not parent_frame or parent_frame.startswith('/'):
         return None, 'PARENT_FRAME_INVALID'
@@ -204,16 +212,6 @@ def _validated_components(
         return None, 'SOURCE_STAMP_MISSING'
     if tool.pose_mode != ToolPose.POSE_MODE_PLANAR_4DOF_WITH_NORMAL_PRIOR:
         return None, 'POSE_MODE_NOT_PLANAR_4DOF_WITH_NORMAL_PRIOR'
-    if tool.validity != ToolPose.VALIDITY_VALID:
-        return None, 'POSE_VALIDITY_NOT_VALID'
-    if not tool.position_valid:
-        return None, 'POSITION_INVALID'
-    if not tool.orientation_valid:
-        return None, 'ORIENTATION_INVALID'
-
-    dof_observed = tuple(bool(value) for value in tool.dof_observed)
-    if dof_observed != (True, True, True, False, False, True):
-        return None, 'PLANAR_DOF_CONTRACT_INVALID'
 
     position = tool.pose.position
     translation = (float(position.x), float(position.y), float(position.z))
@@ -265,7 +263,7 @@ def constrained_transform_from_tool_pose(
     view: str,
     track_id: int,
 ) -> ToolTfDecision:
-    """Convert a valid planar-with-normal-prior pose to a tracked TF frame."""
+    """Convert a measured planar-with-normal-prior pose to a tracked TF frame."""
     components, reason = _validated_components(header, tool)
     if components is None:
         return ToolTfDecision(None, reason)
@@ -283,8 +281,8 @@ def constrained_transform_from_tool_pose(
 class ToolSpatialTfSelector:
     """Publish current zone/class/left-to-right selectors as dynamic TFs.
 
-    A selector such as ``tray_army#2`` is intentionally ephemeral: it denotes
-    the second Army-Navy retractor from the left in the source-stamped CAM4
+    A selector such as ``mayo_army#2`` is intentionally ephemeral: it denotes
+    the second Army-Navy retractor from the left in a source-stamped camera
     observation.  It does not claim that the same physical instrument keeps
     that name after removal, reordering, occlusion, or re-entry.
     """

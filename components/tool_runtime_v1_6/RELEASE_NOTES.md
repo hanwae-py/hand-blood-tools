@@ -50,3 +50,16 @@ from the previous runtime.
   calibration substitutes.
 - Added reproducible RGB-video and native-depth MCAP evaluators. The latter
   reports constrained planar pose validity, not unconstrained 6D accuracy.
+
+## 2026-08-26 XLarge-first runtime policy
+
+- Changed Tool runtime and library defaults from Small to XLarge.
+- Defined the measured-latency step-down order as XLarge, Large, then Medium.
+- Small remains available only as an explicit legacy selection.
+
+## 2026-08-26 Final Overlay Tool ROI
+
+- The CAM3/CAM4 Final Overlay now draws each Tool worker's selected recognition
+  ROI polygon and profile name directly on the corresponding source image.
+- Live CAM3/CAM4 recognition now requires at least 70 percent mask overlap plus
+  an inside mask centroid, instead of the previous 50 percent overlap.

@@ -1,5 +1,6 @@
 """Tests for one-to-one RGB/native-depth timestamp pairing and lifecycle."""
 
+from pnu_surgical_perception.native_depth_pose_node import NativeDepthPoseNode
 from pnu_surgical_perception.native_depth_sync import (
     ApproximateRgbDepthPairer,
 )
@@ -9,8 +10,6 @@ import pytest
 import rclpy
 from rclpy.context import Context
 from sensor_msgs.msg import CompressedImage
-
-from pnu_surgical_perception.native_depth_pose_node import NativeDepthPoseNode
 
 
 def message_at(stamp_ns):
@@ -64,9 +63,16 @@ def test_native_depth_node_lifecycle_keeps_rclpy_collections_intact(monkeypatch)
         node._depth_topic = '/test/cam_3/depth'
         node._depth_info_topic = '/test/cam_3/depth_info'
         node._extrinsics_topic = '/test/cam_3/extrinsics'
+        node._depth_aligned_to_color = False
+        node._depth_alignment_mode = 'native'
         node._processing_gate_topic = ''
         node._pose_topic = '/test/cam_3/poses'
         node._observation_topic = '/test/cam_3/observations'
+        node._publish_class_masks = True
+        node._class_mask_names = ('Scalpel',)
+        node._class_mask_topics = {
+            'Scalpel': '/test/cam_3/masks/scalpel'
+        }
         node._overlay_topic = '/test/cam_3/overlay'
         node._pose_overlay_topic = '/test/cam_3/pose_overlay'
         node._diagnostics_topic = '/test/cam_3/diagnostics'
@@ -75,6 +81,7 @@ def test_native_depth_node_lifecycle_keeps_rclpy_collections_intact(monkeypatch)
         node._sync_queue_size = 1
         node._require_depth = True
         node._workspace_zone = 'test'
+        node._workspace_roi_profile = 'none'
         node._publish_tool_tf = False
 
     monkeypatch.setattr(

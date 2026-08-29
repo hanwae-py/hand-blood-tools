@@ -1,0 +1,20 @@
+[Unit]
+Description=Taskplanner direct five-view recognition overlay viewer
+Wants=taskplanner-perception-final-overlay.service
+After=graphical-session.target taskplanner-perception-final-overlay.service
+PartOf=graphical-session.target
+ConditionEnvironment=DISPLAY
+
+[Service]
+Type=simple
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_mtu_safe.xml
+ExecStart=%h/projects/hand-blood-tools/scripts/run_final_overlay_viewer.sh
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=graphical-session.target

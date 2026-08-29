@@ -1,5 +1,8 @@
 """Smoke tests for Blood optional centroid depth sampling."""
 
+import json
+import threading
+import time
 from types import SimpleNamespace
 
 import cv2
@@ -11,10 +14,307 @@ from sensor_msgs.msg import CameraInfo, CompressedImage
 
 from surgical_task_coordinator.blood_detection_node import (
     BloodDetectionNode,
+    encode_coco_rle,
+    image_quality_metrics,
     mask_centroid,
     sample_centroid_depth_m,
     stamp_ns,
 )
+
+
+class _Publisher:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, message):
+        self.messages.append(message)
+
+
+def _drain_until(node, predicate, timeout_sec=3.0):
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        node._drain_completed_frame()
+        if predicate():
+            return
+        time.sleep(0.005)
+    node._drain_completed_frame()
+    assert predicate(), 'worker result was not available before timeout'
+
+
+def _slow_coco_rle_reference(mask):
+    binary = np.asarray(mask, dtype=np.uint8)
+    flat = binary.reshape(-1, order='F')
+    counts = []
+    previous = 0
+    run_length = 0
+    for pixel in flat:
+        current = int(pixel != 0)
+        if current == previous:
+            run_length += 1
+        else:
+            counts.append(run_length)
+            run_length = 1
+            previous = current
+    counts.append(run_length)
+    return {'size': [int(binary.shape[0]), int(binary.shape[1])], 'counts': counts}
+
+
+def _jpeg(value_or_image) -> CompressedImage:
+    image = (
+        np.full((80, 120, 3), int(value_or_image), dtype=np.uint8)
+        if np.isscalar(value_or_image) else np.asarray(value_or_image, dtype=np.uint8)
+    )
+    success, encoded = cv2.imencode('.jpg', image)
+    assert success
+    message = CompressedImage()
+    message.header.stamp.sec = 12
+    message.header.stamp.nanosec = 34
+    message.header.frame_id = 'flir_color_optical_frame'
+    message.format = 'jpeg'
+    message.data = encoded.tobytes()
+    return message
+
+
+def test_flir_image_quality_metrics_fail_dark_and_pass_gradient():
+    dark = np.full((40, 60, 3), 3, dtype=np.uint8)
+    gradient = np.tile(
+        np.linspace(0, 220, 60, dtype=np.uint8), (40, 1))
+    bright = np.repeat(gradient[:, :, None], 3, axis=2)
+    dark_quality = image_quality_metrics(dark)
+    bright_quality = image_quality_metrics(bright)
+    assert dark_quality['gray_p99'] < 20.0
+    assert dark_quality['gray_dynamic_range'] < 12.0
+    assert bright_quality['gray_p99'] > 20.0
+    assert bright_quality['gray_dynamic_range'] > 12.0
+    with pytest.raises(ValueError):
+        image_quality_metrics(np.zeros((10, 10), dtype=np.uint8))
+
+
+@pytest.mark.parametrize('shape', [(0, 0), (0, 3), (3, 0), (1, 1), (2, 3), (19, 23)])
+def test_vectorized_coco_rle_matches_existing_contract(shape):
+    rng = np.random.default_rng(sum(shape) + 11)
+    masks = [
+        np.zeros(shape, dtype=np.uint8),
+        np.ones(shape, dtype=np.uint8),
+        rng.integers(0, 4, size=shape, dtype=np.uint8),
+    ]
+    for mask in masks:
+        encoded = encode_coco_rle(mask)
+        assert encoded == _slow_coco_rle_reference(mask)
+        assert all(type(count) is int for count in encoded['counts'])
+        assert all(type(count) is int for count in json.loads(json.dumps(encoded))['counts'])
+
+
+def test_vectorized_coco_rle_is_column_major_and_preserves_leading_one_run():
+    mask = np.array([[1, 0, 1], [1, 1, 0]], dtype=np.uint8)
+    encoded = encode_coco_rle(mask)
+    assert encoded == _slow_coco_rle_reference(mask)
+    assert encoded['counts'] == [0, 2, 1, 2, 1]
+
+
+def test_dark_flir_frame_is_unknown_without_model_or_mask_call():
+    class Model:
+        calls = 0
+
+        def predict(self, *_args, **_kwargs):
+            self.calls += 1
+            raise AssertionError('dark input must not reach RF-DETR')
+
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node.set_parameters([
+            Parameter('reject_low_quality_input', Parameter.Type.BOOL, True),
+            Parameter('camera', Parameter.Type.STRING, 'flir'),
+        ])
+        node._active = True
+        node._model = Model()
+        node._mask_pub = _Publisher()
+        node._overlay_pub = _Publisher()
+        node._semantics_pub = _Publisher()
+        node._on_color(_jpeg(3))
+        _drain_until(node, lambda: bool(node._semantics_pub.messages))
+        assert node._model.calls == 0
+        assert node._mask_pub.messages == []
+        assert len(node._overlay_pub.messages) == 1
+        payload = json.loads(node._semantics_pub.messages[0].data)
+        assert payload['observation_valid'] is False
+        assert payload['mask_published'] is False
+        assert payload['camera'] == 'flir'
+        assert payload['header'] == {
+            'stamp_sec': 12, 'stamp_nanosec': 34,
+            'frame_id': 'flir_color_optical_frame'}
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def test_bright_flir_frame_runs_model_and_publishes_valid_empty_mask():
+    class Cuda:
+        @staticmethod
+        def is_available():
+            return False
+
+    class Torch:
+        cuda = Cuda()
+
+    class Model:
+        calls = 0
+
+        def predict(self, image, **_kwargs):
+            self.calls += 1
+            height, width = image.shape[:2]
+            return SimpleNamespace(
+                mask=np.zeros((0, height, width), dtype=bool),
+                xyxy=np.empty((0, 4), dtype=np.float32),
+                class_id=np.empty((0,), dtype=np.int32),
+                confidence=np.empty((0,), dtype=np.float32),
+            )
+
+    gradient = np.tile(
+        np.linspace(0, 220, 120, dtype=np.uint8), (80, 1))
+    bright = np.repeat(gradient[:, :, None], 3, axis=2)
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node.set_parameters([
+            Parameter('reject_low_quality_input', Parameter.Type.BOOL, True),
+            Parameter('camera', Parameter.Type.STRING, 'flir'),
+        ])
+        node._active = True
+        node._model = Model()
+        node._torch = Torch()
+        node._mask_pub = _Publisher()
+        node._overlay_pub = _Publisher()
+        node._semantics_pub = _Publisher()
+        node._on_color(_jpeg(bright))
+        _drain_until(node, lambda: bool(node._semantics_pub.messages))
+        assert node._model.calls == 1
+        assert len(node._mask_pub.messages) == 1
+        payload = json.loads(node._semantics_pub.messages[0].data)
+        assert payload['observation_valid'] is True
+        assert payload['mask_published'] is True
+        assert payload['depth_sampled'] is False
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def test_rgb_only_mode_never_touches_depth_path():
+    class Cuda:
+        @staticmethod
+        def is_available():
+            return False
+
+    class Torch:
+        cuda = Cuda()
+
+    class Model:
+        def predict(self, image, **_kwargs):
+            height, width = image.shape[:2]
+            return SimpleNamespace(
+                mask=np.zeros((0, height, width), dtype=bool),
+                xyxy=np.empty((0, 4), dtype=np.float32),
+                class_id=np.empty((0,), dtype=np.int32),
+                confidence=np.empty((0,), dtype=np.float32),
+            )
+
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node._active = True
+        node._model = Model()
+        node._torch = Torch()
+        node._mask_pub = _Publisher()
+        node._overlay_pub = _Publisher()
+        node._semantics_pub = _Publisher()
+        node._aligned_depth_m = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('RGB-only mode must not call _aligned_depth_m')
+        )
+        node._on_depth(_compressed_depth(8, 12, 1500))
+        node._on_color(_jpeg(180))
+        _drain_until(node, lambda: bool(node._semantics_pub.messages))
+        payload = json.loads(node._semantics_pub.messages[-1].data)
+        assert payload['depth_sampled'] is False
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def test_latest_frame_worker_replaces_backlog_without_parallel_model_calls():
+    class Cuda:
+        @staticmethod
+        def is_available():
+            return False
+
+    class Torch:
+        cuda = Cuda()
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class Model:
+        calls = 0
+
+        def predict(self, image, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                started.set()
+                assert release.wait(timeout=2.0)
+            height, width = image.shape[:2]
+            return SimpleNamespace(
+                mask=np.zeros((0, height, width), dtype=bool),
+                xyxy=np.empty((0, 4), dtype=np.float32),
+                class_id=np.empty((0,), dtype=np.int32),
+                confidence=np.empty((0,), dtype=np.float32),
+            )
+
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node._active = True
+        node._model = Model()
+        node._torch = Torch()
+        node._mask_pub = _Publisher()
+        node._overlay_pub = _Publisher()
+        node._semantics_pub = _Publisher()
+        node._on_color(_jpeg(80))
+        assert started.wait(timeout=2.0)
+        for value in (100, 120, 140, 160):
+            node._on_color(_jpeg(value))
+        release.set()
+        _drain_until(node, lambda: node._model.calls >= 2)
+        assert node._model.calls == 2
+        assert node._frames_dropped_latest >= 3
+        assert node._worker_busy is False or node._pending_job is None
+    finally:
+        release.set()
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def test_blood_health_requires_active_fresh_successful_observation():
+    rclpy.init()
+    node = BloodDetectionNode()
+    try:
+        node._health_pub = _Publisher()
+        node._diagnostics_pub = _Publisher()
+        node._active = True
+        node._model = object()
+        node._image_quality_ready = True
+        node._last_observation_valid = True
+        node._last_input_at = time.monotonic()
+        node._publish_status()
+        assert json.loads(node._health_pub.messages[-1].data)['ready'] is True
+
+        node._last_input_at = time.monotonic() - 5.0
+        node._publish_status()
+        stale = json.loads(node._health_pub.messages[-1].data)
+        assert stale['ready'] is False
+        assert stale['input_fresh'] is False
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
 def test_mask_centroid_and_depth_sample():

@@ -1,16 +1,17 @@
-import rclpy
-from rclpy.context import Context
+from types import SimpleNamespace
 
 from pnu_surgical_perception.perception_ingress import (
-    PerceptionIngress,
-    canonical_camera,
+    camera_has_depth,
     camera_info_qos,
+    canonical_camera,
     image_reader_qos,
     ingress_topics,
     local_extrinsics_qos,
+    PerceptionIngress,
 )
+import rclpy
+from rclpy.context import Context
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, ReliabilityPolicy
-from types import SimpleNamespace
 
 
 def test_cam3_mapping_uses_one_synced_source_and_local_fanout():
@@ -30,15 +31,36 @@ def test_cam4_mapping_preserves_synced_calibration_contract():
     assert topics.local_extrinsics == '/perception/ingress/cam_4/extrinsics/depth_to_color'
 
 
+def test_head_mapping_uses_eir_color_aligned_depth_without_extrinsics():
+    topics = ingress_topics('head')
+    assert topics.remote_color == '/eir/camera/head/color/image_raw/compressed'
+    assert topics.remote_depth == (
+        '/eir/camera/head/aligned_depth_to_color/image_raw/compressedDepth'
+    )
+    assert topics.remote_depth_info == (
+        '/eir/camera/head/aligned_depth_to_color/camera_info'
+    )
+    assert topics.local_depth == (
+        '/perception/ingress/head/depth/image_rect_raw/compressedDepth'
+    )
+    assert camera_has_depth('head') is True
+
+
 def test_only_supported_cameras_are_accepted():
     assert canonical_camera('3') == 'cam_3'
     assert canonical_camera('/synced/cam4/color/image_raw/compressed') == 'cam_4'
-    try:
-        canonical_camera('cam_2')
-    except ValueError:
-        pass
-    else:
-        raise AssertionError('cam_2 must not silently acquire an ingress worker')
+    assert canonical_camera('cam_1') == 'cam_1'
+    assert canonical_camera('cam_2') == 'cam_2'
+    assert canonical_camera('flir') == 'flir'
+
+
+def test_realsense_cameras_are_depth_ready_while_flir_remains_rgb_only():
+    assert camera_has_depth('cam_1') is True
+    assert camera_has_depth('cam_2') is True
+    assert camera_has_depth('cam_3') is True
+    assert camera_has_depth('cam_4') is True
+    assert camera_has_depth('head') is True
+    assert camera_has_depth('flir') is False
 
 
 def test_image_reader_qos_is_latest_best_effort_volatile():
@@ -74,8 +96,45 @@ def test_ingress_node_lifecycle_keeps_rclpy_collections_intact():
         rclpy.shutdown(context=context)
 
 
+def test_flir_ingress_does_not_advertise_phantom_depth_outputs():
+    context = Context()
+    node = None
+    rclpy.init(
+        args=['--ros-args', '-p', 'camera:=flir'], context=context)
+    try:
+        node = PerceptionIngress(context=context)
+        assert node._has_depth is False
+        assert set(node._ingress_publishers) == {'color', 'color_info'}
+        assert len(node._ingress_subscriptions) == 2
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown(context=context)
+
+
+def test_head_ingress_advertises_rgbd_but_no_extrinsics():
+    context = Context()
+    node = None
+    rclpy.init(
+        args=['--ros-args', '-p', 'camera:=head'], context=context)
+    try:
+        node = PerceptionIngress(context=context)
+        assert node._has_depth is True
+        assert node._has_extrinsics is False
+        assert set(node._ingress_publishers) == {
+            'color', 'color_info', 'depth', 'depth_info'
+        }
+        assert len(node._ingress_subscriptions) == 4
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown(context=context)
+
+
 def test_forward_uses_ingress_owned_publishers_without_changing_message():
     class Publisher:
+        """Capture published messages for the forwarding contract test."""
+
         def __init__(self):
             self.messages = []
 

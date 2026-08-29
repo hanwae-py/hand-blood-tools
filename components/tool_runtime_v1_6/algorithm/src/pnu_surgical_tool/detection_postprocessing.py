@@ -79,6 +79,37 @@ class TemporalClassConfig:
 class DetectionPostprocessorConfig:
     workspace_roi: WorkspaceRoiConfig = field(default_factory=WorkspaceRoiConfig)
     temporal_class: TemporalClassConfig = field(default_factory=TemporalClassConfig)
+    default_class_confidence_threshold: float = 0.0
+    class_confidence_thresholds: tuple[tuple[str, float], ...] = ()
+
+    def __post_init__(self) -> None:
+        default_threshold = float(self.default_class_confidence_threshold)
+        if (
+            not math.isfinite(default_threshold)
+            or not 0.0 <= default_threshold <= 1.0
+        ):
+            raise ValueError(
+                "default class confidence threshold must be finite and in [0, 1]"
+            )
+        object.__setattr__(
+            self, "default_class_confidence_threshold", default_threshold
+        )
+        normalized: list[tuple[str, float]] = []
+        names: set[str] = set()
+        for raw_name, raw_threshold in self.class_confidence_thresholds:
+            name = str(raw_name).strip()
+            threshold = float(raw_threshold)
+            if not name:
+                raise ValueError("class confidence threshold name is required")
+            if name in names:
+                raise ValueError(f"duplicate class confidence threshold: {name}")
+            if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+                raise ValueError(
+                    "class confidence thresholds must be finite and in [0, 1]"
+                )
+            names.add(name)
+            normalized.append((name, threshold))
+        object.__setattr__(self, "class_confidence_thresholds", tuple(normalized))
 
 
 @dataclass
@@ -145,11 +176,18 @@ class DetectionPostprocessor:
         self._roi_cache: dict[tuple[int, int], np.ndarray] = {}
         self._tracks: dict[int, _Track] = {}
         self._next_track_id = 1
+        self._class_confidence_thresholds = dict(
+            config.class_confidence_thresholds
+        )
         self.last_diagnostics: dict[str, int | float | bool] = {
             "enabled": bool(
-                config.workspace_roi.enabled or config.temporal_class.enabled
+                self._class_confidence_thresholds
+                or config.default_class_confidence_threshold > 0.0
+                or config.workspace_roi.enabled
+                or config.temporal_class.enabled
             ),
             "input_instances": 0,
+            "class_confidence_rejected_instances": 0,
             "roi_rejected_instances": 0,
             "output_instances": 0,
             "active_tracks": 0,
@@ -220,6 +258,20 @@ class DetectionPostprocessor:
             return list(batch.instances)
         roi = self._roi_mask(batch.image_width, batch.image_height)
         return [item for item in batch.instances if self._inside_roi(item, roi)]
+
+    def _filter_class_confidence(
+        self, instances: list[DetectionInstance]
+    ) -> list[DetectionInstance]:
+        if not self._class_confidence_thresholds:
+            return list(instances)
+        return [
+            item
+            for item in instances
+            if item.class_confidence >= self._class_confidence_thresholds.get(
+                item.class_name,
+                self.config.default_class_confidence_threshold,
+            )
+        ]
 
     def _association_score(
         self,
@@ -404,8 +456,12 @@ class DetectionPostprocessor:
 
     def process(self, batch: DetectionBatch) -> DetectionBatch:
         """Return a new batch after configured ROI and temporal processing."""
-        filtered = self._filter_roi(batch)
-        roi_rejected = len(batch.instances) - len(filtered)
+        filtered = self._filter_class_confidence(batch.instances)
+        class_confidence_rejected = len(batch.instances) - len(filtered)
+        filtered = self._filter_roi(replace(batch, instances=filtered))
+        roi_rejected = (
+            len(batch.instances) - class_confidence_rejected - len(filtered)
+        )
         created = matched = raw_transitions = overrides = switches = 0
         if self.config.temporal_class.enabled:
             (
@@ -426,10 +482,15 @@ class DetectionPostprocessor:
         )
         self.last_diagnostics = {
             "enabled": bool(
-                self.config.workspace_roi.enabled
+                self._class_confidence_thresholds
+                or self.config.default_class_confidence_threshold > 0.0
+                or self.config.workspace_roi.enabled
                 or self.config.temporal_class.enabled
             ),
             "input_instances": len(batch.instances),
+            "class_confidence_rejected_instances": (
+                class_confidence_rejected
+            ),
             "roi_rejected_instances": roi_rejected,
             "output_instances": len(output.instances),
             "active_tracks": len(self._tracks),

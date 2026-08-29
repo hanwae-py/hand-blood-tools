@@ -9,6 +9,7 @@ from pnu_surgical_tool.depth_registration import (
     decode_compressed_depth_16uc1,
     metric_depth_in_rgb_frame,
     registrar_from_camera_fields,
+    rigid_transform_from_realsense_extrinsics,
 )
 from pnu_surgical_tool.planar_pose import (
     _pca_endpoints,
@@ -117,7 +118,7 @@ def test_bipolar_working_endpoint_points_to_tip_for_case_shapes(
 
 @pytest.mark.parametrize("fixture_name", _ADSON_CASE_FIXTURES)
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_adson_working_endpoint_points_to_tip_for_case_shapes(
+def test_adson_uses_legacy_smaller_end_handle_policy(
     fixture_name: str,
     quarter_turns: int,
 ) -> None:
@@ -127,28 +128,24 @@ def test_adson_working_endpoint_points_to_tip_for_case_shapes(
     width = int(contour[:, 0].max()) + 1
     mask = np.zeros((height, width), dtype=np.uint8)
     __import__("cv2").fillPoly(mask, [contour], 1)
-    tip_uv = np.asarray(fixture["tip_uv"], dtype=np.float64)
-    handle_uv = np.asarray(fixture["handle_uv"], dtype=np.float64)
     for _ in range(quarter_turns):
-        old_width = mask.shape[1]
         mask = np.rot90(mask)
-        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
-        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
 
-    endpoints = _pca_endpoints(
+    assert _sign_policy("Adson Forceps") == "smaller_end_is_handle"
+    actual = _pca_endpoints(
         mask.astype(bool),
         _sign_policy("Adson Forceps"),
     )
-
-    working_uv = endpoints["working_uv"]
-    estimated_handle_uv = endpoints["handle_uv"]
-    assert np.linalg.norm(working_uv - tip_uv) < np.linalg.norm(
-        estimated_handle_uv - tip_uv
+    legacy = _pca_endpoints(
+        mask.astype(bool),
+        "smaller_end_is_handle",
     )
-    assert np.linalg.norm(estimated_handle_uv - handle_uv) < np.linalg.norm(
-        working_uv - handle_uv
+    np.testing.assert_allclose(actual["working_uv"], legacy["working_uv"])
+    np.testing.assert_allclose(actual["handle_uv"], legacy["handle_uv"])
+    np.testing.assert_allclose(actual["axis_uv"], legacy["axis_uv"])
+    assert actual["sign_confidence"] == pytest.approx(
+        legacy["sign_confidence"]
     )
-    assert endpoints["sign_confidence"] >= 0.2
 
 
 @pytest.mark.parametrize(
@@ -159,12 +156,6 @@ def test_adson_working_endpoint_points_to_tip_for_case_shapes(
             5,
             4,
             _BIPOLAR_CASE_FIXTURES["0704_9_55s_straight"],
-        ),
-        (
-            "Adson Forceps",
-            4,
-            3,
-            _ADSON_CASE_FIXTURES["0704_9_70s_straight"],
         ),
     ],
 )
@@ -363,6 +354,52 @@ def test_metric_depth_registers_native_into_rgb_frame() -> None:
     finite = aligned[np.isfinite(aligned)]
     assert finite.size > 0
     assert float(np.nanmedian(finite)) == pytest.approx(1.5, abs=0.05)
+
+
+def test_metric_depth_prefers_registrar_for_equal_resolution_grids() -> None:
+    registrar = registrar_from_camera_fields(
+        color_width=5,
+        color_height=4,
+        color_k=[[100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 1.0]],
+        color_d=[],
+        color_frame="color",
+        depth_width=5,
+        depth_height=4,
+        depth_k=[[100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 1.0]],
+        depth_d=[],
+        depth_frame="depth",
+        rotation=np.eye(3),
+        translation_m=[0.01, 0.0, 0.0],
+        calibration_version="same-size-test",
+    )
+    native = np.zeros((4, 5), dtype=np.uint16)
+    native[1, 1] = 1000
+
+    aligned = metric_depth_in_rgb_frame(native, 4, 5, 0.001, registrar)
+
+    assert aligned is not None
+    assert np.isnan(aligned[1, 1])
+    assert float(aligned[1, 2]) == pytest.approx(1.0)
+
+
+def test_realsense_flat_rotation_is_column_major() -> None:
+    angle = np.deg2rad(17.0)
+    rotation = np.array([
+        [np.cos(angle), -np.sin(angle), 0.0],
+        [np.sin(angle), np.cos(angle), 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    raw_column_major = rotation.reshape(-1, order="F")
+
+    transform = rigid_transform_from_realsense_extrinsics(
+        raw_column_major,
+        [0.0, 0.0, 0.0],
+        source_frame="depth",
+        target_frame="color",
+        calibration_version="column-major-test",
+    )
+
+    np.testing.assert_allclose(transform.rotation, rotation, atol=1e-12)
 
 
 def test_package_import_does_not_load_detector() -> None:

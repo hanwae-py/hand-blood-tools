@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from .types import DetectionBatch, DetectionInstance
+from .trt_batch import BatchInferenceClient
 
 
 ModelSize = Literal["small", "medium", "large", "xlarge"]
@@ -64,9 +65,12 @@ class DetectorConfig:
     optimize: bool = True
     jit_compile: bool = True
     fp16: bool = True
-    model_size: ModelSize = "small"
+    model_size: ModelSize = "xlarge"
     model_version: str | None = None
     checkpoint_color_order: ColorOrder | None = None
+    trt_server_socket: str | Path | None = None
+    trt_camera_key: str | None = None
+    trt_request_timeout_sec: float = 10.0
 
 
 class SurgicalToolDetector:
@@ -80,6 +84,9 @@ class SurgicalToolDetector:
     def __init__(self, config: DetectorConfig) -> None:
         self.config = config
         self._model = None
+        self._trt_client: BatchInferenceClient | None = None
+        self.runtime_backend = "unloaded"
+        self.last_runtime_diagnostics: dict[str, object] = {}
         if config.model_size not in _MODEL_RUNTIME_SPECS:
             supported = ", ".join(_MODEL_RUNTIME_SPECS)
             raise ValueError(
@@ -110,6 +117,12 @@ class SurgicalToolDetector:
             raise ValueError("class_agnostic_nms_iou must be in [0, 1]")
         if self.checkpoint_color_order not in ("RGB", "BGR"):
             raise ValueError("checkpoint_color_order must be 'RGB' or 'BGR'")
+        if config.trt_server_socket and not config.trt_camera_key:
+            raise ValueError(
+                "trt_camera_key is required when trt_server_socket is configured"
+            )
+        if config.trt_request_timeout_sec <= 0.0:
+            raise ValueError("trt_request_timeout_sec must be positive")
 
     def load(self) -> None:
         if self._model is not None:
@@ -117,11 +130,32 @@ class SurgicalToolDetector:
         checkpoint = Path(self.config.checkpoint_path).expanduser().resolve()
         if not checkpoint.is_file():
             raise FileNotFoundError(checkpoint)
+        if self.config.trt_server_socket:
+            self._trt_client = BatchInferenceClient(
+                self.config.trt_server_socket,
+                str(self.config.trt_camera_key),
+                timeout_sec=self.config.trt_request_timeout_sec,
+                expected_model_size=self.config.model_size,
+            )
+            server = self._trt_client.ping()
+            self.runtime_backend = "tensorrt_shared_dynamic_batch"
+            self.last_runtime_diagnostics = {
+                "backend": self.runtime_backend,
+                "server_model_size": server.get("model_size"),
+                "maximum_batch_size": server.get("maximum_batch_size"),
+                "engine_sha256": server.get("engine_sha256"),
+            }
+            # A non-None sentinel preserves the public lazy-load contract
+            # without allocating a second RF-DETR model in this client.
+            self._model = self._trt_client
+            return
         import torch
         import rfdetr
 
         model_class = getattr(rfdetr, self._runtime_spec.class_name)
-        model = model_class.from_checkpoint(str(checkpoint))
+        # A checkpoint may persist device='cuda'; do not let that override a CPU-only host.
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = model_class.from_checkpoint(str(checkpoint), device=device)
         if self.config.optimize:
             if not torch.cuda.is_available():
                 raise RuntimeError(
@@ -135,6 +169,19 @@ class SurgicalToolDetector:
                 inplace=False,
             )
         self._model = model
+        self.runtime_backend = (
+            "torchscript_fp16"
+            if self.config.optimize and self.config.jit_compile
+            else "pytorch_optimized"
+            if self.config.optimize
+            else "pytorch_eager"
+        )
+        self.last_runtime_diagnostics = {"backend": self.runtime_backend}
+
+    def close(self) -> None:
+        """Release a persistent shared-server connection, when configured."""
+        if self._trt_client is not None:
+            self._trt_client.close()
 
     def predict(
         self,
@@ -162,19 +209,27 @@ class SurgicalToolDetector:
         else:
             model_image = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
         started = time.perf_counter()
-        detections = self._model.predict(
-            model_image,
-            threshold=threshold,
-            include_source_image=False,
-        )
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        if self._trt_client is not None:
+            detections = self._trt_client.predict(model_image, threshold)
+            self.last_runtime_diagnostics = {
+                "backend": self.runtime_backend,
+                **self._trt_client.last_diagnostics,
+            }
+        else:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            detections = self._model.predict(
+                model_image,
+                threshold=threshold,
+                include_source_image=False,
+            )
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         latency_ms = (time.perf_counter() - started) * 1000.0
+        self.last_runtime_diagnostics["detector_total_ms"] = latency_ms
 
         height, width = frame.shape[:2]
         masks = getattr(detections, "mask", None)

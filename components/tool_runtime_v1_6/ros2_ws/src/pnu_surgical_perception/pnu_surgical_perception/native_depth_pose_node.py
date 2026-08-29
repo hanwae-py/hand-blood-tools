@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 import time
@@ -49,15 +50,14 @@ from rclpy.qos import (
 )
 
 from realsense2_camera_msgs.msg import Extrinsics
-from sensor_msgs.msg import CameraInfo, CompressedImage
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import Bool, String
-from tf2_ros import TransformBroadcaster
-
 from surgical_perception_msgs.msg import (
     ToolObservation2DArray,
     ToolPose,
     ToolPoseArray,
 )
+from tf2_ros import TransformBroadcaster
 
 
 DEFAULT_ALGORITHM_PATH = os.environ.get(
@@ -65,6 +65,9 @@ DEFAULT_ALGORITHM_PATH = os.environ.get(
 )
 DEFAULT_CHECKPOINT = os.environ.get('PNU_RFDETR_CHECKPOINT', '')
 DEFAULT_ONTOLOGY = os.environ.get('PNU_SURGICAL_TOOL_ONTOLOGY', '')
+DEFAULT_DEPTH_REGISTRATION_CUDA_LIBRARY = os.environ.get(
+    'PNU_DEPTH_REGISTRATION_CUDA_LIBRARY', ''
+)
 
 
 # Fixed canonical colors keep the same instrument recognizable across CAM3,
@@ -80,10 +83,104 @@ TOOL_OVERLAY_COLORS_BGR: dict[str, tuple[int, int, int]] = {
     'Thyroid Retractor': (210, 180, 30),
 }
 
+DEFAULT_CLASS_MASK_NAMES = tuple(TOOL_OVERLAY_COLORS_BGR)
+
 
 def tool_overlay_color_bgr(class_name: str) -> tuple[int, int, int]:
     """Return the canonical visual color for a recognized surgical tool."""
     return TOOL_OVERLAY_COLORS_BGR.get(class_name, (235, 235, 235))
+
+
+def class_mask_slug(class_name: str) -> str:
+    """Return a deterministic ROS-topic suffix for one ontology class."""
+    slug = re.sub(r'[^a-z0-9]+', '_', str(class_name).strip().lower()).strip('_')
+    if not slug:
+        raise ValueError('class mask name must contain an ASCII letter or digit')
+    return slug
+
+
+def union_class_masks(
+    detections: Any,
+    class_names: tuple[str, ...] | list[str],
+    image_shape: tuple[int, int],
+) -> dict[str, np.ndarray]:
+    """Build one uint8 mono mask per class, including empty classes."""
+    height, width = (int(value) for value in image_shape)
+    if height <= 0 or width <= 0:
+        raise ValueError('image_shape must contain positive height and width')
+    masks = {
+        str(name): np.zeros((height, width), dtype=np.uint8)
+        for name in class_names
+    }
+    for instance in detections.instances:
+        class_name = str(instance.class_name)
+        if class_name not in masks:
+            continue
+        mask = np.asarray(instance.mask, dtype=bool)
+        if mask.shape != (height, width):
+            raise ValueError(
+                f'{class_name} mask shape {mask.shape} != RGB shape '
+                f'{(height, width)}'
+            )
+        masks[class_name][mask] = 255
+    return masks
+
+
+def class_mask_messages(
+    detections: Any,
+    class_names: tuple[str, ...] | list[str],
+    image_shape: tuple[int, int],
+    header: Any,
+) -> tuple[tuple[str, Image], ...]:
+    """Build the complete source-stamped mask set for one output bundle."""
+    messages = []
+    for class_name, mask in union_class_masks(
+        detections, class_names, image_shape
+    ).items():
+        message = Image()
+        message.header = header
+        message.height = int(mask.shape[0])
+        message.width = int(mask.shape[1])
+        message.encoding = 'mono8'
+        message.is_bigendian = False
+        message.step = int(mask.shape[1])
+        message.data = mask.tobytes(order='C')
+        messages.append((class_name, message))
+    return tuple(messages)
+
+
+def aligned_depth_to_meters(
+    native_depth: np.ndarray,
+    image_shape: tuple[int, int],
+    depth_scale_m_per_unit: float,
+    minimum_depth_m: float,
+    maximum_depth_m: float,
+) -> np.ndarray:
+    """Validate color-aligned uint16 depth and convert it to metres."""
+    source = np.asarray(native_depth)
+    expected = tuple(int(value) for value in image_shape)
+    if source.ndim != 2 or source.shape != expected:
+        raise ValueError(
+            f'aligned depth shape {source.shape} != RGB shape {expected}'
+        )
+    if source.dtype != np.uint16:
+        raise ValueError(f'aligned depth must be uint16, got {source.dtype}')
+    scale = float(depth_scale_m_per_unit)
+    minimum = float(minimum_depth_m)
+    maximum = float(maximum_depth_m)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError('depth scale must be finite and positive')
+    if not 0.0 <= minimum < maximum or not np.isfinite(maximum):
+        raise ValueError('depth limits must satisfy 0 <= minimum < maximum')
+    depth_m = source.astype(np.float32) * scale
+    valid = (
+        (source != 0)
+        & np.isfinite(depth_m)
+        & (depth_m >= minimum)
+        & (depth_m <= maximum)
+    )
+    depth_m[~valid] = np.nan
+    return depth_m
 
 
 def reliable_qos(depth: int = 5) -> QoSProfile:
@@ -169,6 +266,74 @@ class PendingPoseFrame:
     received_monotonic: float
 
 
+@dataclass(frozen=True)
+class PendingOverlayFrame:
+    """Latest-only visualization job, kept off the pose/mask critical path."""
+
+    rgb: np.ndarray
+    detections: Any
+    observation_array: ToolObservation2DArray
+    selector_labels: tuple[str, ...]
+    header: Any
+    pose_result: Any | None
+    pose_camera: Any | None
+
+
+@dataclass(frozen=True)
+class PendingOutputBundle:
+    """One exact-stamp pose/observation/mask result published atomically."""
+
+    pose_array: ToolPoseArray | None
+    observation_array: ToolObservation2DArray
+    class_mask_messages: tuple[tuple[str, Image], ...]
+    selector_u_by_instance_id: dict[int, float]
+    diagnostics: dict[str, Any]
+    process_started: float
+    queued_monotonic: float
+    source_stamp_ns: int
+    instance_count: int
+    valid_pose_count: int
+
+
+class LatestOnlyOutputSlot:
+    """Thread-safe singleton that overwrites stale, not-yet-published output."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._pending: PendingOutputBundle | None = None
+        self._stopping = False
+        self.overwritten_total = 0
+
+    def put(self, bundle: PendingOutputBundle) -> None:
+        with self._condition:
+            if self._stopping:
+                return
+            if self._pending is not None:
+                self.overwritten_total += 1
+            self._pending = bundle
+            self._condition.notify()
+
+    def take(self) -> PendingOutputBundle | None:
+        with self._condition:
+            while self._pending is None and not self._stopping:
+                self._condition.wait()
+            if self._stopping:
+                return None
+            pending = self._pending
+            self._pending = None
+            return pending
+
+    def stop(self) -> None:
+        with self._condition:
+            self._stopping = True
+            self._condition.notify_all()
+
+    @property
+    def has_pending(self) -> bool:
+        with self._condition:
+            return self._pending is not None
+
+
 class NativeDepthPoseNode(Node):
     """Latest-frame ROS adapter for native depth registration and tool pose."""
 
@@ -184,6 +349,15 @@ class NativeDepthPoseNode(Node):
         self._observation_publisher = self.create_publisher(
             ToolObservation2DArray, self._observation_topic, reliable_qos()
         )
+        self._class_mask_publishers = {
+            class_name: self.create_publisher(
+                Image,
+                self._class_mask_topics[class_name],
+                qos_profile_sensor_data,
+            )
+            for class_name in self._class_mask_names
+            if self._publish_class_masks
+        }
         self._overlay_publisher = self.create_publisher(
             CompressedImage, self._overlay_topic, qos_profile_sensor_data
         )
@@ -212,9 +386,12 @@ class NativeDepthPoseNode(Node):
         self._rejected_extrinsics = 0
         self._last_extrinsics_error = ''
         self._pending: PendingPoseFrame | None = None
+        self._overlay_pending: PendingOverlayFrame | None = None
+        self._output_slot = LatestOnlyOutputSlot()
         self._stopping = False
         self._model_ready = False
         self._registrar_ready = False
+        self._aligned_depth_ready = False
         self._last_success_monotonic: float | None = None
         self._last_pair_monotonic: float | None = None
         self._last_error_code = ''
@@ -223,12 +400,24 @@ class NativeDepthPoseNode(Node):
         self._received_depth = 0
         self._paired_frames = 0
         self._processed_frames = 0
+        self._class_mask_frames_published = 0
         self._dropped_pending_frames = 0
+        self._overlay_processed_frames = 0
+        self._overlay_dropped_pending_frames = 0
+        self._last_overlay_latency_ms = 0.0
+        self._last_overlay_error = ''
+        self._output_published_bundles = 0
+        self._last_output_bundle_queue_wait_ms = 0.0
+        self._last_output_bundle_publish_ms = 0.0
+        self._last_output_bundle_latency_ms = 0.0
+        self._last_output_bundle_source_age_ms = 0.0
+        self._last_output_error = ''
         self._last_publish_log_monotonic = 0.0
         self._sequence = 0
         self._registrar = None
         self._registrar_key: tuple[Any, ...] | None = None
         self._algorithm = None
+        self._detector = None
         self._detection_postprocessor = None
         self._support_plane = None
         self._algorithm_symbols: dict[str, Any] = {}
@@ -297,16 +486,30 @@ class NativeDepthPoseNode(Node):
             name='native-depth-tool-pose',
             daemon=True,
         )
+        self._overlay_worker = threading.Thread(
+            target=self._overlay_worker_loop,
+            name='native-depth-tool-overlay',
+            daemon=True,
+        )
+        self._output_worker = threading.Thread(
+            target=self._output_worker_loop,
+            name='native-depth-tool-output',
+            daemon=True,
+        )
         self._worker.start()
+        self._overlay_worker.start()
+        self._output_worker.start()
         self._health_timer = self.create_timer(1.0, self._publish_health)
         self.get_logger().info(
             f'native-depth pose node started: rgb={self._rgb_topic}, '
             f'depth={self._depth_topic}, require_depth={self._require_depth}, '
+            f'depth_alignment={self._depth_alignment_mode}, '
             f'extrinsics={self._extrinsics_topic}, '
             f'workspace_zone={self._workspace_zone}, '
             f'workspace_roi_profile={self._workspace_roi_profile}, '
             f'max_delta_ns={self._maximum_stamp_delta_ns}, '
-            f'publish_tool_tf={self._publish_tool_tf}'
+            f'publish_tool_tf={self._publish_tool_tf}, '
+            f'class_mask_topics={len(self._class_mask_topics)}'
         )
 
     def _declare_parameters(self) -> None:
@@ -337,8 +540,14 @@ class NativeDepthPoseNode(Node):
             'extrinsics_topic', f'{prefix}/extrinsics/depth_to_color'
         )
         self.declare_parameter('require_extrinsics_topic', True)
+        self.declare_parameter('depth_aligned_to_color', False)
         self.declare_parameter('pose_topic', f'{out}/poses')
         self.declare_parameter('observation_topic', f'{out}/observations')
+        self.declare_parameter('publish_class_masks', True)
+        self.declare_parameter('class_mask_topic_prefix', f'{out}/masks')
+        self.declare_parameter(
+            'class_mask_names', list(DEFAULT_CLASS_MASK_NAMES)
+        )
         self.declare_parameter('overlay_topic', f'{out}/overlay/compressed')
         self.declare_parameter(
             'pose_overlay_topic', f'{out}/pose_overlay/compressed'
@@ -359,11 +568,14 @@ class NativeDepthPoseNode(Node):
         )
         self.declare_parameter('checkpoint', DEFAULT_CHECKPOINT)
         self.declare_parameter('ontology', DEFAULT_ONTOLOGY)
-        self.declare_parameter('model_size', 'small')
-        self.declare_parameter('checkpoint_color_order', 'BGR')
+        self.declare_parameter('model_size', 'xlarge')
+        self.declare_parameter('checkpoint_color_order', 'RGB')
         self.declare_parameter('model_version', '')
+        self.declare_parameter('trt_server_socket', '')
+        self.declare_parameter('trt_request_timeout_sec', 10.0)
         self.declare_parameter('confidence_threshold', 0.3)
-        self.declare_parameter('enable_class_agnostic_nms', True)
+        self.declare_parameter('adson_forceps_confidence_threshold', -1.0)
+        self.declare_parameter('enable_class_agnostic_nms', False)
         self.declare_parameter('class_agnostic_nms_iou', 0.8)
         self.declare_parameter('workspace_roi_enabled', False)
         self.declare_parameter(
@@ -395,6 +607,14 @@ class NativeDepthPoseNode(Node):
 
         self.declare_parameter('depth_scale_m_per_unit', 0.0)
         self.declare_parameter('depth_scale_verified', False)
+        self.declare_parameter('depth_registration_backend', 'numpy')
+        self.declare_parameter(
+            'depth_registration_allow_numpy_fallback', False
+        )
+        self.declare_parameter(
+            'depth_registration_cuda_library',
+            DEFAULT_DEPTH_REGISTRATION_CUDA_LIBRARY,
+        )
         self.declare_parameter('minimum_depth_m', 0.05)
         self.declare_parameter('maximum_depth_m', 10.0)
         self.declare_parameter('depth_to_color_rotation', [float('nan')] * 9)
@@ -453,12 +673,48 @@ class NativeDepthPoseNode(Node):
         self._require_extrinsics_topic = bool(
             value('require_extrinsics_topic')
         )
+        self._depth_aligned_to_color = bool(value('depth_aligned_to_color'))
+        self._depth_alignment_mode = (
+            'color_aligned' if self._depth_aligned_to_color else 'native'
+        )
+        if self._depth_aligned_to_color and self._require_extrinsics_topic:
+            raise ValueError(
+                'color-aligned depth must not require an extrinsics topic'
+            )
         if self._require_extrinsics_topic and not self._extrinsics_topic:
             raise ValueError(
                 'extrinsics_topic is required for native-depth 3D pose'
             )
         self._pose_topic = str(value('pose_topic'))
         self._observation_topic = str(value('observation_topic'))
+        self._publish_class_masks = bool(value('publish_class_masks'))
+        self._class_mask_topic_prefix = str(
+            value('class_mask_topic_prefix')
+        ).strip().rstrip('/')
+        if self._publish_class_masks and not self._class_mask_topic_prefix.startswith('/'):
+            raise ValueError('class_mask_topic_prefix must be an absolute topic')
+        self._class_mask_names = tuple(
+            str(item).strip() for item in value('class_mask_names')
+        )
+        if self._publish_class_masks and not self._class_mask_names:
+            raise ValueError('class_mask_names must not be empty')
+        if any(not item for item in self._class_mask_names):
+            raise ValueError('class_mask_names must not contain empty names')
+        class_mask_slugs = tuple(
+            class_mask_slug(item) for item in self._class_mask_names
+        )
+        if len(set(self._class_mask_names)) != len(self._class_mask_names):
+            raise ValueError('class_mask_names must be unique')
+        if len(set(class_mask_slugs)) != len(class_mask_slugs):
+            raise ValueError('class_mask_names produce duplicate topic suffixes')
+        self._class_mask_topics = (
+            {
+                name: f'{self._class_mask_topic_prefix}/{slug}'
+                for name, slug in zip(self._class_mask_names, class_mask_slugs)
+            }
+            if self._publish_class_masks
+            else {}
+        )
         self._overlay_topic = str(value('overlay_topic'))
         self._pose_overlay_topic = str(value('pose_overlay_topic'))
         self._diagnostics_topic = str(value('diagnostics_topic'))
@@ -509,7 +765,33 @@ class NativeDepthPoseNode(Node):
                 'checkpoint_color_order must be RGB or BGR'
             )
         self._model_version = str(value('model_version')).strip() or None
+        self._trt_server_socket = str(value('trt_server_socket')).strip()
+        self._trt_request_timeout_sec = float(
+            value('trt_request_timeout_sec')
+        )
+        if (
+            not np.isfinite(self._trt_request_timeout_sec)
+            or self._trt_request_timeout_sec <= 0.0
+        ):
+            raise ValueError('trt_request_timeout_sec must be positive')
         self._confidence_threshold = float(value('confidence_threshold'))
+        self._adson_forceps_confidence_threshold = float(
+            value('adson_forceps_confidence_threshold')
+        )
+        if self._adson_forceps_confidence_threshold != -1.0 and not (
+            0.0 <= self._adson_forceps_confidence_threshold <= 1.0
+        ):
+            raise ValueError(
+                'adson_forceps_confidence_threshold must be -1 or in [0, 1]'
+            )
+        self._inference_confidence_threshold = min(
+            self._confidence_threshold,
+            (
+                self._adson_forceps_confidence_threshold
+                if self._adson_forceps_confidence_threshold >= 0.0
+                else self._confidence_threshold
+            ),
+        )
         self._enable_class_agnostic_nms = bool(
             value('enable_class_agnostic_nms')
         )
@@ -567,6 +849,27 @@ class NativeDepthPoseNode(Node):
 
         self._depth_scale = float(value('depth_scale_m_per_unit'))
         self._depth_scale_verified = bool(value('depth_scale_verified'))
+        self._depth_registration_backend = str(
+            value('depth_registration_backend')
+        ).strip().lower()
+        self._depth_registration_allow_numpy_fallback = bool(
+            value('depth_registration_allow_numpy_fallback')
+        )
+        self._depth_registration_cuda_library = str(
+            value('depth_registration_cuda_library')
+        ).strip()
+        if self._depth_registration_backend not in ('numpy', 'cuda'):
+            raise ValueError(
+                'depth_registration_backend must be numpy or cuda'
+            )
+        if (
+            self._depth_registration_backend == 'cuda'
+            and not self._depth_registration_cuda_library
+        ):
+            raise ValueError(
+                'depth_registration_cuda_library is required for CUDA depth '
+                'registration'
+            )
         self._minimum_depth_m = float(value('minimum_depth_m'))
         self._maximum_depth_m = float(value('maximum_depth_m'))
         if not np.isfinite(self._depth_scale) or self._depth_scale <= 0.0:
@@ -649,6 +952,7 @@ class NativeDepthPoseNode(Node):
         if (
             not self._require_extrinsics_topic
             and self._reference_extrinsics is None
+            and not self._depth_aligned_to_color
         ):
             raise ValueError(
                 'a legacy no-topic profile requires a complete reference '
@@ -909,11 +1213,26 @@ class NativeDepthPoseNode(Node):
                 fp16=self._fp16,
                 model_version=self._model_version,
                 checkpoint_color_order=self._checkpoint_color_order,
+                trt_server_socket=self._trt_server_socket or None,
+                trt_camera_key=self._view,
+                trt_request_timeout_sec=self._trt_request_timeout_sec,
             )
         )
         detector.load()
+        self._detector = detector
         self._detection_postprocessor = DetectionPostprocessor(
             DetectionPostprocessorConfig(
+                default_class_confidence_threshold=(
+                    self._confidence_threshold
+                ),
+                class_confidence_thresholds=(
+                    ((
+                        'Adson Forceps',
+                        self._adson_forceps_confidence_threshold,
+                    ),)
+                    if self._adson_forceps_confidence_threshold >= 0.0
+                    else ()
+                ),
                 workspace_roi=WorkspaceRoiConfig(
                     enabled=self._workspace_roi_enabled,
                     polygon_norm_xy=self._workspace_roi_polygon_norm_xy,
@@ -994,6 +1313,189 @@ class NativeDepthPoseNode(Node):
             if pending is not None:
                 self._process_frame(pending)
 
+    def _queue_overlays(self, pending: PendingOverlayFrame) -> None:
+        """Replace any stale visualization job without delaying ROS results."""
+        with self._condition:
+            if self._overlay_pending is not None:
+                self._overlay_dropped_pending_frames += 1
+            self._overlay_pending = pending
+            self._condition.notify_all()
+
+    def _overlay_worker_loop(self) -> None:
+        """Render only the most recent completed perception frame."""
+        while True:
+            with self._condition:
+                while self._overlay_pending is None and not self._stopping:
+                    self._condition.wait()
+                if self._stopping:
+                    return
+                pending = self._overlay_pending
+                self._overlay_pending = None
+            if pending is None:
+                continue
+            started = time.perf_counter()
+            error_message = ''
+            try:
+                if (
+                    pending.pose_result is not None
+                    and pending.pose_camera is not None
+                ):
+                    self._publish_pose_overlay(
+                        pending.rgb,
+                        pending.pose_result,
+                        pending.pose_camera,
+                        pending.header,
+                    )
+                self._publish_detection_overlay(
+                    pending.rgb,
+                    pending.detections,
+                    pending.observation_array,
+                    list(pending.selector_labels),
+                    pending.header,
+                )
+            except Exception as error:
+                error_message = f'{type(error).__name__}: {error}'
+                self.get_logger().warning(
+                    f'latest-only tool overlay failed: {error_message}'
+                )
+            finally:
+                latency_ms = (time.perf_counter() - started) * 1000.0
+                with self._condition:
+                    self._overlay_processed_frames += 1
+                    self._last_overlay_latency_ms = latency_ms
+                    self._last_overlay_error = error_message
+
+    def _empty_tf_report(self) -> dict[str, Any]:
+        return {
+            'enabled': self._publish_tool_tf,
+            'published_count': 0,
+            'skipped_count': 0,
+            'source_age_sec': None,
+            'skip_reason': 'POSE_RESULT_UNAVAILABLE',
+            'active_track_count': self._tf_tracker.active_track_count,
+            'track_created_total': self._tf_tracker.created_total,
+            'track_expired_total': self._tf_tracker.expired_total,
+            'track_rejected_total': self._tf_tracker.rejected_total,
+            'track_reset_total': self._tf_tracker.reset_total,
+        }
+
+    def _output_worker_loop(self) -> None:
+        """Publish only complete, newest pose/observation/mask bundles."""
+        while True:
+            bundle = self._output_slot.take()
+            if bundle is None or self._stopping:
+                return
+            output_started = time.perf_counter()
+            queue_wait_ms = (
+                output_started - bundle.queued_monotonic
+            ) * 1000.0
+            try:
+                if bundle.pose_array is not None:
+                    self._pose_publisher.publish(bundle.pose_array)
+                    tf_report = self._publish_constrained_tool_tf(
+                        bundle.pose_array,
+                        selector_u_by_instance_id=(
+                            bundle.selector_u_by_instance_id
+                        ),
+                    )
+                else:
+                    tf_report = self._empty_tf_report()
+
+                self._observation_publisher.publish(
+                    bundle.observation_array
+                )
+                for class_name, message in bundle.class_mask_messages:
+                    self._class_mask_publishers[class_name].publish(message)
+
+                publish_ms = (
+                    time.perf_counter() - output_started
+                ) * 1000.0
+                latency_ms = (
+                    time.perf_counter() - bundle.process_started
+                ) * 1000.0
+                source_age_ms = max(
+                    0.0,
+                    (
+                        self.get_clock().now().nanoseconds
+                        - bundle.source_stamp_ns
+                    ) / 1_000_000.0,
+                )
+                with self._condition:
+                    if bundle.class_mask_messages:
+                        self._class_mask_frames_published += 1
+                    self._output_published_bundles += 1
+                    published_total = self._output_published_bundles
+                    self._last_output_bundle_queue_wait_ms = queue_wait_ms
+                    self._last_output_bundle_publish_ms = publish_ms
+                    self._last_output_bundle_latency_ms = latency_ms
+                    self._last_output_bundle_source_age_ms = source_age_ms
+                    self._last_output_error = ''
+
+                diagnostics = dict(bundle.diagnostics)
+                diagnostics.update({
+                    'total_latency_ms': latency_ms,
+                    'output_execution': 'async_latest_only_bundle',
+                    'output_bundle_queue_wait_ms': queue_wait_ms,
+                    'output_bundle_publish_ms': publish_ms,
+                    'output_bundle_latency_ms': latency_ms,
+                    'output_bundle_source_age_ms': source_age_ms,
+                    'output_bundle_mask_count': len(
+                        bundle.class_mask_messages
+                    ),
+                    'output_bundle_overwritten_total': (
+                        self._output_slot.overwritten_total
+                    ),
+                    'output_bundle_published_total': published_total,
+                    'class_mask_frames_published': (
+                        self._class_mask_frames_published
+                    ),
+                    'tf_published_count': tf_report['published_count'],
+                    'tf_skipped_count': tf_report['skipped_count'],
+                    'tf_source_age_sec': tf_report['source_age_sec'],
+                    'tf_skip_reason': tf_report['skip_reason'],
+                    'tf_active_track_count': tf_report['active_track_count'],
+                    'tf_track_created_total': tf_report[
+                        'track_created_total'
+                    ],
+                    'tf_track_expired_total': tf_report[
+                        'track_expired_total'
+                    ],
+                    'tf_track_rejected_total': tf_report[
+                        'track_rejected_total'
+                    ],
+                    'tf_track_reset_total': tf_report['track_reset_total'],
+                })
+                self._diagnostics_publisher.publish(String(
+                    data=json.dumps(diagnostics, separators=(',', ':'))
+                ))
+                now_monotonic = time.monotonic()
+                if (
+                    now_monotonic - self._last_publish_log_monotonic
+                    >= 1.0
+                ):
+                    self.get_logger().info(
+                        f'published v1.6 tools: {bundle.instance_count} '
+                        f'instances; valid_poses={bundle.valid_pose_count}; '
+                        f'output_bundle_ms={latency_ms:.1f}; '
+                        f'overwritten={self._output_slot.overwritten_total}'
+                    )
+                    self._last_publish_log_monotonic = now_monotonic
+                with self._condition:
+                    self._processed_frames += 1
+                    self._last_success_monotonic = time.monotonic()
+                    self._last_error_code = ''
+                    self._last_error_message = ''
+            except Exception as error:
+                if self._stopping or not self.context.ok():
+                    return
+                message = f'{type(error).__name__}: {error}'
+                with self._condition:
+                    self._last_output_error = message
+                self._set_error('OUTPUT_BUNDLE_PUBLISH_FAILED', message)
+                self.get_logger().error(
+                    f'latest-only output bundle failed: {message}'
+                )
+
     def _camera_calibration(self, info: CameraInfo, suffix: str) -> Any:
         """Convert a ROS CameraInfo to the core calibration type."""
         calibration_type = self._algorithm_symbols['CameraCalibration']
@@ -1005,6 +1507,52 @@ class NativeDepthPoseNode(Node):
             frame_name=str(info.header.frame_id),
             calibration_version=f'{self._calibration_version}:{suffix}',
         )
+
+    def _get_aligned_color_camera(
+        self,
+        color_info: CameraInfo,
+        depth_info: CameraInfo,
+        rgb_shape: tuple[int, int],
+        depth_shape: tuple[int, int],
+    ) -> Any:
+        """Validate aligned-depth geometry and return the color calibration."""
+        color_frame = str(color_info.header.frame_id)
+        depth_frame = str(depth_info.header.frame_id)
+        if self._expected_color_frame and color_frame != self._expected_color_frame:
+            raise ValueError(
+                f'color frame {color_frame!r} != expected '
+                f'{self._expected_color_frame!r}'
+            )
+        if self._expected_depth_frame and depth_frame != self._expected_depth_frame:
+            raise ValueError(
+                f'depth frame {depth_frame!r} != expected '
+                f'{self._expected_depth_frame!r}'
+            )
+        if color_frame != depth_frame:
+            raise ValueError(
+                'color-aligned depth must use the color optical frame: '
+                f'color={color_frame!r}, depth={depth_frame!r}'
+            )
+        expected_rgb_shape = (int(color_info.height), int(color_info.width))
+        expected_depth_shape = (int(depth_info.height), int(depth_info.width))
+        if tuple(rgb_shape) != expected_rgb_shape:
+            raise ValueError(
+                f'RGB shape {tuple(rgb_shape)} != Color CameraInfo '
+                f'{expected_rgb_shape}'
+            )
+        if tuple(depth_shape) != expected_depth_shape:
+            raise ValueError(
+                f'aligned depth shape {tuple(depth_shape)} != Depth CameraInfo '
+                f'{expected_depth_shape}'
+            )
+        if expected_rgb_shape != expected_depth_shape:
+            raise ValueError(
+                'color-aligned depth and RGB CameraInfo dimensions differ'
+            )
+        camera = self._camera_calibration(color_info, 'aligned_color')
+        with self._condition:
+            self._aligned_depth_ready = True
+        return camera
 
     def _get_registrar(
         self,
@@ -1053,7 +1601,18 @@ class NativeDepthPoseNode(Node):
             ),
         )
         registrar_type = self._algorithm_symbols['DepthToColorRegistrar']
-        self._registrar = registrar_type(depth_camera, color_camera, transform)
+        self._registrar = registrar_type(
+            depth_camera,
+            color_camera,
+            transform,
+            backend=self._depth_registration_backend,
+            allow_sticky_numpy_fallback=(
+                self._depth_registration_allow_numpy_fallback
+            ),
+            cuda_library_path=(
+                self._depth_registration_cuda_library or None
+            ),
+        )
         self._registrar_key = key
         with self._condition:
             self._registrar_ready = True
@@ -1070,19 +1629,20 @@ class NativeDepthPoseNode(Node):
                 sequence = self._sequence
             detect_started = time.perf_counter()
             detections = self._algorithm.detect(
-                rgb, 'BGR', self._confidence_threshold
+                rgb, 'BGR', self._inference_confidence_threshold
             )
             detect_ms = (time.perf_counter() - detect_started) * 1000.0
 
             aligned_depth_m = None
             registration_ms = 0.0
             pose_result = None
+            pose_camera = None
             inference_pose_ms = 0.0
             with self._condition:
                 extrinsics_ready = bool(
-                    pending.depth_to_color_extrinsics is not None
-                    and pending.extrinsics_revision
-                    == self._extrinsics_revision
+                    not self._depth_aligned_to_color
+                    and pending.depth_to_color_extrinsics is not None
+                    and pending.extrinsics_revision == self._extrinsics_revision
                     and self._active_extrinsics_locked()
                     is pending.depth_to_color_extrinsics
                 )
@@ -1090,33 +1650,49 @@ class NativeDepthPoseNode(Node):
                 pending.depth is not None
                 and pending.color_info is not None
                 and pending.depth_info is not None
-                and extrinsics_ready
             ):
                 native_depth = self._algorithm_symbols['decode_depth'](
                     pending.depth.data, pending.depth.format
                 )
                 registrar_started = time.perf_counter()
-                registrar = self._get_registrar(
-                    pending.color_info,
-                    pending.depth_info,
-                    pending.depth_to_color_extrinsics,
-                )
-                registration = registrar.register(
-                    native_depth,
-                    self._depth_scale,
-                    minimum_depth_m=self._minimum_depth_m,
-                    maximum_depth_m=self._maximum_depth_m,
-                )
+                if self._depth_aligned_to_color:
+                    aligned_depth_m = aligned_depth_to_meters(
+                        native_depth,
+                        rgb.shape[:2],
+                        self._depth_scale,
+                        self._minimum_depth_m,
+                        self._maximum_depth_m,
+                    )
+                    pose_camera = self._get_aligned_color_camera(
+                        pending.color_info,
+                        pending.depth_info,
+                        rgb.shape[:2],
+                        native_depth.shape,
+                    )
+                elif extrinsics_ready:
+                    registrar = self._get_registrar(
+                        pending.color_info,
+                        pending.depth_info,
+                        pending.depth_to_color_extrinsics,
+                    )
+                    registration = registrar.register(
+                        native_depth,
+                        self._depth_scale,
+                        minimum_depth_m=self._minimum_depth_m,
+                        maximum_depth_m=self._maximum_depth_m,
+                    )
+                    if rgb.shape[:2] == registration.aligned_depth_m.shape:
+                        aligned_depth_m = registration.aligned_depth_m
+                        pose_camera = registrar.color_camera
                 registration_ms = (
                     time.perf_counter() - registrar_started
                 ) * 1000.0
-                if rgb.shape[:2] == registration.aligned_depth_m.shape:
-                    aligned_depth_m = registration.aligned_depth_m
+                if aligned_depth_m is not None and pose_camera is not None:
                     pose_started = time.perf_counter()
                     pose_result = self._algorithm.pose_estimator.estimate(
                         detections,
                         aligned_depth_m,
-                        registrar.color_camera,
+                        pose_camera,
                         self._support_plane,
                         frame_key=f'{self._view}:{sequence}',
                     )
@@ -1131,7 +1707,16 @@ class NativeDepthPoseNode(Node):
                 view=self._view,
                 aligned_depth_m=aligned_depth_m,
             )
-            self._observation_publisher.publish(observation_array)
+            mask_messages = (
+                class_mask_messages(
+                    detections,
+                    self._class_mask_names,
+                    rgb.shape[:2],
+                    pending.rgb.header,
+                )
+                if self._publish_class_masks
+                else ()
+            )
             selector_labels = spatial_tool_child_frames(
                 self._workspace_zone, list(observation_array.instances)
             )
@@ -1141,6 +1726,7 @@ class NativeDepthPoseNode(Node):
             }
 
             valid_count = 0
+            pose_array = None
             if pose_result is not None:
                 pose_array, _unused = to_pose_and_observation_arrays(
                     result=pose_result,
@@ -1151,38 +1737,21 @@ class NativeDepthPoseNode(Node):
                     additional_status_flags=tuple(self._additional_status_flags),
                     degrade_for_additional_flags=True,
                 )
-                self._pose_publisher.publish(pose_array)
-                tf_report = self._publish_constrained_tool_tf(
-                    pose_array,
-                    selector_u_by_instance_id=selector_u_by_instance_id,
-                )
-                self._publish_pose_overlay(
-                    rgb, pose_result, registrar.color_camera, pending.rgb.header
-                )
                 valid_count = sum(
                     item.validity == ToolPose.VALIDITY_VALID
                     for item in pose_array.tools
                 )
-            else:
-                tf_report = {
-                    'enabled': self._publish_tool_tf,
-                    'published_count': 0,
-                    'skipped_count': 0,
-                    'source_age_sec': None,
-                    'skip_reason': 'POSE_RESULT_UNAVAILABLE',
-                    'active_track_count': self._tf_tracker.active_track_count,
-                    'track_created_total': self._tf_tracker.created_total,
-                    'track_expired_total': self._tf_tracker.expired_total,
-                    'track_rejected_total': self._tf_tracker.rejected_total,
-                    'track_reset_total': self._tf_tracker.reset_total,
-                }
 
-            self._publish_detection_overlay(
-                rgb,
-                detections,
-                observation_array,
-                selector_labels,
-                pending.rgb.header,
+            self._queue_overlays(
+                PendingOverlayFrame(
+                    rgb=rgb,
+                    detections=detections,
+                    observation_array=observation_array,
+                    selector_labels=tuple(selector_labels),
+                    header=pending.rgb.header,
+                    pose_result=pose_result,
+                    pose_camera=pose_camera,
+                )
             )
 
             total_ms = (time.perf_counter() - started) * 1000.0
@@ -1195,18 +1764,49 @@ class NativeDepthPoseNode(Node):
                 'frame_id': pending.rgb.header.frame_id,
                 'rgb_depth_delta_ns': pending.rgb_depth_delta_ns,
                 'depth_sampled': aligned_depth_m is not None,
+                'depth_alignment_mode': self._depth_alignment_mode,
+                'aligned_depth_ready': self._aligned_depth_ready,
                 'depth_to_color_extrinsics_ready': extrinsics_ready,
                 'depth_to_color_extrinsics_revision': (
                     pending.extrinsics_revision
                 ),
                 'decode_latency_ms': decode_ms,
                 'detect_latency_ms': detect_ms,
+                'detector_backend': self._detector.runtime_backend,
+                'detector_runtime': dict(
+                    self._detector.last_runtime_diagnostics
+                ),
                 'depth_registration_latency_ms': registration_ms,
+                'depth_registration_backend': (
+                    self._registrar.backend_name
+                    if self._registrar is not None
+                    else (
+                        'color_aligned'
+                        if self._depth_aligned_to_color
+                        else 'uninitialized'
+                    )
+                ),
+                'depth_registration_gpu_ms': (
+                    self._registrar.last_gpu_ms
+                    if self._registrar is not None
+                    else 0.0
+                ),
                 'inference_pose_latency_ms': inference_pose_ms,
                 'total_latency_ms': total_ms,
+                'overlay_execution': 'async_latest_only',
                 'instance_count': len(detections.instances),
                 'valid_pose_count': valid_count,
+                'class_mask_topics': list(self._class_mask_topics.values()),
+                'class_mask_frames_published': (
+                    self._class_mask_frames_published
+                ),
                 'confidence_threshold': self._confidence_threshold,
+                'inference_confidence_threshold': (
+                    self._inference_confidence_threshold
+                ),
+                'adson_forceps_confidence_threshold': (
+                    self._adson_forceps_confidence_threshold
+                ),
                 'enable_class_agnostic_nms': self._enable_class_agnostic_nms,
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
                 'workspace_roi_enabled': self._workspace_roi_enabled,
@@ -1226,33 +1826,24 @@ class NativeDepthPoseNode(Node):
                 'tf_workspace_zone': self._workspace_zone,
                 'tf_selector_order_axis': 'camera_image_u_ascending',
                 'tf_orientation_provenance': CONSTRAINED_SE3_PROVENANCE,
-                'tf_published_count': tf_report['published_count'],
-                'tf_skipped_count': tf_report['skipped_count'],
-                'tf_source_age_sec': tf_report['source_age_sec'],
-                'tf_skip_reason': tf_report['skip_reason'],
-                'tf_active_track_count': tf_report['active_track_count'],
-                'tf_track_created_total': tf_report['track_created_total'],
-                'tf_track_expired_total': tf_report['track_expired_total'],
-                'tf_track_rejected_total': tf_report['track_rejected_total'],
-                'tf_track_reset_total': tf_report['track_reset_total'],
                 'error_code': '',
             }
-            self._diagnostics_publisher.publish(
-                String(data=json.dumps(diagnostics, separators=(',', ':')))
+            source_stamp_ns = (
+                int(pending.rgb.header.stamp.sec) * 1_000_000_000
+                + int(pending.rgb.header.stamp.nanosec)
             )
-            now_monotonic = time.monotonic()
-            if now_monotonic - self._last_publish_log_monotonic >= 1.0:
-                self.get_logger().info(
-                    f'published v1.6 tools: {len(detections.instances)} '
-                    f'instances; valid_poses={valid_count}; '
-                    f'depth_sampled={aligned_depth_m is not None}'
-                )
-                self._last_publish_log_monotonic = now_monotonic
-            with self._condition:
-                self._processed_frames += 1
-                self._last_success_monotonic = time.monotonic()
-                self._last_error_code = ''
-                self._last_error_message = ''
+            self._output_slot.put(PendingOutputBundle(
+                pose_array=pose_array,
+                observation_array=observation_array,
+                class_mask_messages=mask_messages,
+                selector_u_by_instance_id=selector_u_by_instance_id,
+                diagnostics=diagnostics,
+                process_started=started,
+                queued_monotonic=time.perf_counter(),
+                source_stamp_ns=source_stamp_ns,
+                instance_count=len(detections.instances),
+                valid_pose_count=valid_count,
+            ))
         except Exception as error:
             self._set_error('FRAME_PROCESSING_FAILED', str(error))
             self.get_logger().error(f'tool recognition frame failed: {error}')
@@ -1274,12 +1865,14 @@ class NativeDepthPoseNode(Node):
         *,
         selector_u_by_instance_id: dict[int, float],
     ) -> dict[str, Any]:
-        """Emit current valid constrained tool transforms on dynamic ``/tf``.
+        """Emit current measured constrained tool transforms on dynamic ``/tf``.
 
         The input pose contract remains planar 4-DoF: position and yaw are
         measured while roll/pitch are completed by the configured support-plane
-        normal.  A TF consumer receives the complete SE(3) representation but
-        never an invalid, degraded, or stale transform masquerading as current.
+        normal. Quality flags and source age remain available in
+        ``ToolPoseArray``/diagnostics but do not suppress a finite measured pose
+        representation. Only a missing source stamp or structurally invalid
+        numeric pose is rejected before broadcast.
         """
         report: dict[str, Any] = {
             'enabled': self._publish_tool_tf,
@@ -1308,10 +1901,6 @@ class NativeDepthPoseNode(Node):
 
         if source_age_sec is None:
             return self._record_tf_skip(report, 'SOURCE_STAMP_MISSING')
-        if source_age_sec > self._tf_stale_after_sec:
-            return self._record_tf_skip(report, 'SOURCE_STALE')
-        if source_age_sec < -self._tf_max_future_sec:
-            return self._record_tf_skip(report, 'SOURCE_TIMESTAMP_IN_FUTURE')
 
         with self._condition:
             decisions = self._tf_tracker.assign(
@@ -1543,11 +2132,12 @@ class NativeDepthPoseNode(Node):
             )
             active_extrinsics = self._active_extrinsics_locked()
             extrinsics_ready = active_extrinsics is not None
-            depth_ok = (
-                bool(self._registrar_ready) and extrinsics_ready
-                if self._require_depth
-                else True
-            )
+            if not self._require_depth:
+                depth_ok = True
+            elif self._depth_aligned_to_color:
+                depth_ok = bool(self._aligned_depth_ready)
+            else:
+                depth_ok = bool(self._registrar_ready) and extrinsics_ready
             tf_input_age_sec = (
                 (ros_now_ns - self._tf_last_input_source_stamp_ns)
                 / 1_000_000_000.0
@@ -1583,9 +2173,39 @@ class NativeDepthPoseNode(Node):
                     and not self._last_error_code
                 ),
                 'model_ready': self._model_ready,
+                'detector_backend': (
+                    self._detector.runtime_backend
+                    if self._detector is not None
+                    else 'unloaded'
+                ),
+                'detector_runtime': (
+                    dict(self._detector.last_runtime_diagnostics)
+                    if self._detector is not None
+                    else {}
+                ),
                 'color_camera_info_ready': self._color_info is not None,
                 'depth_camera_info_ready': self._depth_info is not None,
+                'depth_alignment_mode': self._depth_alignment_mode,
+                'depth_aligned_to_color': self._depth_aligned_to_color,
+                'aligned_depth_ready': self._aligned_depth_ready,
+                'depth_geometry_ready': depth_ok,
                 'depth_registrar_ready': self._registrar_ready,
+                'depth_registration_backend_requested': (
+                    self._depth_registration_backend
+                ),
+                'depth_registration_backend_active': (
+                    self._registrar.backend_name
+                    if self._registrar is not None
+                    else (
+                        'color_aligned'
+                        if self._depth_aligned_to_color
+                        else 'uninitialized'
+                    )
+                ),
+                'depth_registration_fallback_active': bool(
+                    self._registrar is not None
+                    and self._registrar.fallback_active
+                ),
                 'depth_to_color_extrinsics_topic': self._extrinsics_topic,
                 'depth_to_color_extrinsics_required': (
                     self._require_extrinsics_topic
@@ -1611,6 +2231,32 @@ class NativeDepthPoseNode(Node):
                 ),
                 'workspace_roi_enabled': self._workspace_roi_enabled,
                 'workspace_roi_profile': self._workspace_roi_profile,
+                'class_masks_enabled': self._publish_class_masks,
+                'class_mask_topics': list(self._class_mask_topics.values()),
+                'class_mask_frames_published': (
+                    self._class_mask_frames_published
+                ),
+                'output_execution': 'async_latest_only_bundle',
+                'output_bundle_pending': self._output_slot.has_pending,
+                'output_bundle_published_total': (
+                    self._output_published_bundles
+                ),
+                'output_bundle_overwritten_total': (
+                    self._output_slot.overwritten_total
+                ),
+                'last_output_bundle_queue_wait_ms': (
+                    self._last_output_bundle_queue_wait_ms
+                ),
+                'last_output_bundle_publish_ms': (
+                    self._last_output_bundle_publish_ms
+                ),
+                'last_output_bundle_latency_ms': (
+                    self._last_output_bundle_latency_ms
+                ),
+                'last_output_bundle_source_age_ms': (
+                    self._last_output_bundle_source_age_ms
+                ),
+                'last_output_error': self._last_output_error,
                 'available_pose_mode': 'PLANAR_4DOF_WITH_NORMAL_PRIOR',
                 'full_6d_available': False,
                 'tf_topic': '/tf',
@@ -1651,6 +2297,12 @@ class NativeDepthPoseNode(Node):
                 'paired_frames': self._paired_frames,
                 'processed_frames': self._processed_frames,
                 'dropped_pending_frames': self._dropped_pending_frames,
+                'overlay_processed_frames': self._overlay_processed_frames,
+                'overlay_dropped_pending_frames': (
+                    self._overlay_dropped_pending_frames
+                ),
+                'last_overlay_latency_ms': self._last_overlay_latency_ms,
+                'last_overlay_error': self._last_overlay_error,
                 'dropped_unmatched_frames': self._pairer.dropped_unmatched,
                 'last_error_code': self._last_error_code,
                 'last_error_message': self._last_error_message,
@@ -1664,8 +2316,15 @@ class NativeDepthPoseNode(Node):
         with self._condition:
             self._stopping = True
             self._condition.notify_all()
+        self._output_slot.stop()
         if self._worker.is_alive():
             self._worker.join(timeout=5.0)
+        if self._overlay_worker.is_alive():
+            self._overlay_worker.join(timeout=5.0)
+        if self._output_worker.is_alive():
+            self._output_worker.join(timeout=5.0)
+        if self._detector is not None:
+            self._detector.close()
 
 
 def main(args=None) -> None:

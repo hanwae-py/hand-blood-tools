@@ -1,0 +1,43 @@
+# CAM3 native-depth registration and work-plane contract for Hand.
+# Runtime calibration arrives on the latched CAM3 ingress Extrinsics topic.
+/**:
+  ros__parameters:
+    depth_scale_m_per_unit: 0.001
+    # CAM3 Hand is the first CUDA canary. A native failure switches once to
+    # the NumPy oracle and remains visibly degraded until the service restarts.
+    depth_registration_backend: "cuda"
+    depth_registration_allow_sticky_numpy_fallback: true
+    require_extrinsics_topic: true
+    minimum_depth_to_color_baseline_m: 0.02
+    maximum_depth_to_color_baseline_m: 0.12
+    expected_depth_to_color_translation_direction: [-1.0, 0.0, 0.0]
+    minimum_depth_to_color_direction_cosine: 0.95
+    depth_to_color_rotation_orthonormal_tolerance: 0.0001
+    depth_to_color_rotation_determinant_tolerance: 0.0001
+    expected_color_frame: "cam_3_color_optical_frame"
+    expected_depth_frame: "cam_3_depth_optical_frame"
+    calibration_version: "cam3_live_factory_depth_scale_and_workplane_20260822"
+
+    # The work plane was approved for CAM3 serial 146222250366 on 2026-08-22.
+    # Palm-facing remains observation-only until the physical handedness/sign
+    # mapping is explicitly verified for this view.
+    palm_facing_enabled: true
+    palm_table_up_normal:
+      - -0.011784563353441073
+      - -0.2998239722928375
+      - -0.9539217524016907
+    palm_support_plane_offset_m: 0.6635724681161439
+    palm_normal_sign_left: -1.0
+    palm_normal_sign_right: 1.0
+    palm_facing_expected_flip_handedness: false
+    palm_facing_enter_cosine: 0.75
+    palm_facing_hold_cosine: 0.60
+    palm_facing_filter_alpha: 0.50
+    palm_facing_max_plane_residual_m: 0.012
+    palm_facing_min_span_m: 0.025
+    palm_facing_min_handedness_score: 0.60
+    palm_facing_calibration_version: "cam3_live_aprilgrid_depth_workplane_20260822"
+    palm_facing_handedness_mapping_version: "mediapipe_nonmirrored_convention_v1_pending_live_check"
+    palm_facing_mapping_verified: false
+    palm_facing_min_support_height_m: 0.008
+    palm_facing_max_support_height_m: 0.25

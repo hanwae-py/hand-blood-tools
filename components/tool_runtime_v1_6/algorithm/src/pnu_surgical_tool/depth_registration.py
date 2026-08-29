@@ -9,6 +9,7 @@ cached ``DepthToColorRegistrar``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any
 
 import cv2
@@ -137,6 +138,11 @@ class DepthToColorRegistrar:
         depth_camera: CameraCalibration,
         color_camera: CameraCalibration,
         color_from_depth: RigidTransform,
+        *,
+        backend: str = "numpy",
+        allow_sticky_numpy_fallback: bool = False,
+        cuda_library_path: str | None = None,
+        cuda_device_id: int = 0,
     ) -> None:
         if color_from_depth.source_frame != depth_camera.frame_name:
             raise ValueError(
@@ -166,6 +172,67 @@ class DepthToColorRegistrar:
         self._depth_rays = np.column_stack(
             (normalized, np.ones(len(normalized), dtype=np.float64))
         ).astype(np.float32)
+        requested_backend = str(backend).strip().lower()
+        if requested_backend not in ("numpy", "cuda"):
+            raise ValueError("depth registration backend must be 'numpy' or 'cuda'")
+        self.requested_backend = requested_backend
+        self.allow_sticky_numpy_fallback = bool(allow_sticky_numpy_fallback)
+        self.backend_name = "numpy_reference"
+        self.backend_version = str(np.__version__)
+        self.fallback_active = False
+        self.fallback_count = 0
+        self.last_backend_error = ""
+        self.last_registration_ms = 0.0
+        self.last_gpu_ms = 0.0
+        self._closed = False
+        self._cuda_backend = None
+        if requested_backend == "cuda":
+            try:
+                from ._depth_registration_cuda import CudaDepthRegistrar
+
+                self._cuda_backend = CudaDepthRegistrar(
+                    depth_rays=self._depth_rays,
+                    depth_width=depth_camera.width,
+                    depth_height=depth_camera.height,
+                    color_width=color_camera.width,
+                    color_height=color_camera.height,
+                    rotation=color_from_depth.rotation,
+                    translation_m=color_from_depth.translation_m,
+                    color_k=color_camera.k,
+                    distortion=color_camera.distortion,
+                    library_path=cuda_library_path,
+                    device_id=int(cuda_device_id),
+                )
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                if not self.allow_sticky_numpy_fallback:
+                    raise RuntimeError(
+                        f"CUDA depth registration initialization failed: {exc}"
+                    ) from exc
+                self._activate_numpy_fallback(exc)
+            else:
+                self.backend_name = "cuda_cabi_v1"
+                self.backend_version = self._cuda_backend.library_version
+
+    def _activate_numpy_fallback(self, error: BaseException) -> None:
+        """Switch once to the reference path and never retry per frame."""
+
+        if self._cuda_backend is not None:
+            self._cuda_backend.close()
+            self._cuda_backend = None
+        if not self.fallback_active:
+            self.fallback_count += 1
+        self.fallback_active = True
+        self.last_backend_error = f"{type(error).__name__}: {error}"
+        self.backend_name = "numpy_reference"
+        self.backend_version = str(np.__version__)
+
+    def close(self) -> None:
+        """Release native resources deterministically; safe to call repeatedly."""
+
+        if self._cuda_backend is not None:
+            self._cuda_backend.close()
+            self._cuda_backend = None
+        self._closed = True
 
     def register(
         self,
@@ -176,6 +243,8 @@ class DepthToColorRegistrar:
     ) -> DepthRegistrationResult:
         """Return color-camera z-depth in metres with invalid pixels as NaN."""
 
+        if self._closed:
+            raise RuntimeError("depth registration context is closed")
         source = np.asarray(native_depth)
         expected = (self.depth_camera.height, self.depth_camera.width)
         if source.ndim != 2 or source.shape != expected:
@@ -190,6 +259,38 @@ class DepthToColorRegistrar:
         if not 0.0 <= minimum < maximum or not np.isfinite(maximum):
             raise ValueError("depth limits must satisfy 0 <= minimum < maximum")
 
+        registration_started = time.perf_counter()
+        if self._cuda_backend is not None:
+            try:
+                cuda_result = self._cuda_backend.register(
+                    source,
+                    scale,
+                    minimum,
+                    maximum,
+                )
+            except RuntimeError as exc:
+                if not self.allow_sticky_numpy_fallback:
+                    raise
+                self._activate_numpy_fallback(exc)
+            else:
+                self.last_gpu_ms = cuda_result.gpu_elapsed_ms
+                self.last_registration_ms = (
+                    time.perf_counter() - registration_started
+                ) * 1000.0
+                return DepthRegistrationResult(
+                    aligned_depth_m=cuda_result.aligned_depth_m,
+                    source_valid_pixels=cuda_result.source_valid_pixels,
+                    projected_points=cuda_result.projected_points,
+                    aligned_valid_pixels=cuda_result.aligned_valid_pixels,
+                    z_buffer_collisions=(
+                        cuda_result.projected_points
+                        - cuda_result.aligned_valid_pixels
+                    ),
+                    depth_scale_m_per_unit=scale,
+                    source_frame=self.depth_camera.frame_name,
+                    target_frame=self.color_camera.frame_name,
+                )
+
         depth_m = source.reshape(-1).astype(np.float32, copy=False) * scale
         valid = (
             np.isfinite(depth_m)
@@ -199,7 +300,7 @@ class DepthToColorRegistrar:
         source_valid_pixels = int(np.count_nonzero(valid))
         output_shape = (self.color_camera.height, self.color_camera.width)
         if source_valid_pixels == 0:
-            return DepthRegistrationResult(
+            result = DepthRegistrationResult(
                 aligned_depth_m=np.full(output_shape, np.nan, dtype=np.float32),
                 source_valid_pixels=0,
                 projected_points=0,
@@ -209,6 +310,11 @@ class DepthToColorRegistrar:
                 source_frame=self.depth_camera.frame_name,
                 target_frame=self.color_camera.frame_name,
             )
+            self.last_registration_ms = (
+                time.perf_counter() - registration_started
+            ) * 1000.0
+            self.last_gpu_ms = 0.0
+            return result
 
         rays = self._depth_rays[valid]
         depth_values = depth_m[valid]
@@ -309,7 +415,7 @@ class DepthToColorRegistrar:
         aligned_valid_pixels = int(np.count_nonzero(aligned_valid))
         aligned_flat[~aligned_valid] = np.nan
         projected_points = int(len(linear))
-        return DepthRegistrationResult(
+        result = DepthRegistrationResult(
             aligned_depth_m=aligned_flat.reshape(output_shape),
             source_valid_pixels=source_valid_pixels,
             projected_points=projected_points,
@@ -319,19 +425,35 @@ class DepthToColorRegistrar:
             source_frame=self.depth_camera.frame_name,
             target_frame=self.color_camera.frame_name,
         )
+        self.last_registration_ms = (
+            time.perf_counter() - registration_started
+        ) * 1000.0
+        self.last_gpu_ms = 0.0
+        return result
 
 
 def rigid_transform_from_realsense_extrinsics(
-    rotation_row_major: Any,
+    rotation_column_major: Any,
     translation_m: Any,
     source_frame: str,
     target_frame: str,
     calibration_version: str,
 ) -> RigidTransform:
-    """Build ``T_target_from_source`` from RealSense Extrinsics fields."""
+    """Build ``T_target_from_source`` from RealSense Extrinsics fields.
+
+    ``realsense2_camera_msgs/Extrinsics.rotation`` is a flat column-major
+    vector.  Callers that have already validated and expanded that vector may
+    pass a 3x3 matrix directly; it must not be transposed a second time.
+    """
+
+    raw_rotation = np.asarray(rotation_column_major, dtype=np.float64)
+    if raw_rotation.shape == (3, 3):
+        rotation = raw_rotation
+    else:
+        rotation = raw_rotation.reshape((3, 3), order="F")
 
     return RigidTransform(
-        rotation=np.asarray(rotation_row_major, dtype=np.float64).reshape(3, 3),
+        rotation=rotation,
         translation_m=np.asarray(translation_m, dtype=np.float64),
         source_frame=source_frame,
         target_frame=target_frame,
@@ -354,6 +476,10 @@ def registrar_from_camera_fields(
     rotation: Any,
     translation_m: Any,
     calibration_version: str,
+    backend: str = "numpy",
+    allow_sticky_numpy_fallback: bool = False,
+    cuda_library_path: str | None = None,
+    cuda_device_id: int = 0,
 ) -> DepthToColorRegistrar:
     """Build a depth-to-color registrar from CameraInfo-equivalent fields."""
 
@@ -380,7 +506,15 @@ def registrar_from_camera_fields(
         target_frame=color_camera.frame_name,
         calibration_version=f"{calibration_version}:depth_to_color",
     )
-    return DepthToColorRegistrar(depth_camera, color_camera, transform)
+    return DepthToColorRegistrar(
+        depth_camera,
+        color_camera,
+        transform,
+        backend=backend,
+        allow_sticky_numpy_fallback=allow_sticky_numpy_fallback,
+        cuda_library_path=cuda_library_path,
+        cuda_device_id=cuda_device_id,
+    )
 
 
 def finite_vector_or_none(values: Any, length: int) -> np.ndarray | None:
@@ -401,6 +535,11 @@ def registrar_from_camera_messages(
     rotation: Any,
     translation_m: Any,
     calibration_version: str,
+    *,
+    backend: str = "numpy",
+    allow_sticky_numpy_fallback: bool = False,
+    cuda_library_path: str | None = None,
+    cuda_device_id: int = 0,
 ) -> DepthToColorRegistrar:
     """Build a registrar from ROS ``CameraInfo``-like messages."""
 
@@ -420,6 +559,10 @@ def registrar_from_camera_messages(
         rotation=rotation,
         translation_m=translation_m,
         calibration_version=calibration_version,
+        backend=backend,
+        allow_sticky_numpy_fallback=allow_sticky_numpy_fallback,
+        cuda_library_path=cuda_library_path,
+        cuda_device_id=cuda_device_id,
     )
 
 
@@ -432,30 +575,38 @@ def metric_depth_in_rgb_frame(
 ) -> np.ndarray | None:
     """Return RGB-sized metric z-depth, or None when that mapping is unsafe.
 
-    Same HxW is treated as already in the color grid (aligned depth or matching
-    native size). A resolution mismatch uses ``DepthToColorRegistrar``; missing
-    or incompatible calibration does not clip RGB UVs into the native image.
+    A supplied registrar always wins, even when native depth and RGB happen to
+    share the same HxW.  Equal resolution does not prove equal optical frames
+    or intrinsics.  With no registrar, same HxW is accepted only for callers
+    that have already established an aligned-color-grid contract.
     """
 
     source = np.asarray(native_depth)
     if source.ndim != 2:
         return None
     rgb_shape = (int(rgb_height), int(rgb_width))
-    if source.shape == rgb_shape:
-        scale = float(depth_scale_m_per_unit)
-        if not np.isfinite(scale) or scale <= 0.0:
+    if registrar is not None:
+        expected_depth = (
+            registrar.depth_camera.height,
+            registrar.depth_camera.width,
+        )
+        expected_color = (
+            registrar.color_camera.height,
+            registrar.color_camera.width,
+        )
+        if source.shape != expected_depth or expected_color != rgb_shape:
             return None
-        depth_m = source.astype(np.float32) * scale
-        depth_m[source == 0] = 0.0
-        return depth_m
-    if registrar is None:
+        try:
+            return registrar.register(
+                source, depth_scale_m_per_unit
+            ).aligned_depth_m
+        except (TypeError, ValueError):
+            return None
+    if source.shape != rgb_shape:
         return None
-    expected_depth = (registrar.depth_camera.height, registrar.depth_camera.width)
-    expected_color = (registrar.color_camera.height, registrar.color_camera.width)
-    if source.shape != expected_depth or expected_color != rgb_shape:
+    scale = float(depth_scale_m_per_unit)
+    if not np.isfinite(scale) or scale <= 0.0:
         return None
-    try:
-        return registrar.register(source, depth_scale_m_per_unit).aligned_depth_m
-    except (TypeError, ValueError):
-        return None
-
+    depth_m = source.astype(np.float32) * scale
+    depth_m[source == 0] = 0.0
+    return depth_m

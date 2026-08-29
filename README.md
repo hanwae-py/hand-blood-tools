@@ -23,7 +23,7 @@ small recorded-video exception.
 
 Tool weights are selectable without removing the existing Small model:
 `cam4_rfdetr_seg_small_regular_resume_best.pth`, `medium_best.pth`,
-`large_best.pth`, or `xlarge_best.pth`.
+`large_best.pth`, or `checkpoint_selected_external_0825_holdout_conf030.pth`.
 Download Tool checkpoints from
 [this Drive folder](https://drive.google.com/drive/folders/1E42Cpgg8CbFRtnA8DuFbYeBT5IWx_G_h).
 Copy the `.pth` files onto the destination PC and set `TOOL_MODEL_SIZE` plus
@@ -34,7 +34,8 @@ the matching `TOOL_CHECKPOINT_SMALL`, `TOOL_CHECKPOINT_MEDIUM`, and
 
 Small preserves its validated BGR input and class-agnostic NMS contract.
 Medium, Large, and XLarge use RF-DETR's RGB NumPy input contract and no extra
-NMS. For example, select XLarge with:
+NMS. XLarge is the default; if measured latency is too high, step down to
+Large and then Medium. For example, select XLarge explicitly with:
 
 ```bash
 TOOL_MODEL_SIZE=xlarge bash scripts/run_tool_v16.sh cam_4

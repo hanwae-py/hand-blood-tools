@@ -1,0 +1,18 @@
+# Selected from live cam_3 1280x720; frame_id=cam_3_color_optical_frame.
+/**:
+  ros__parameters:
+    workspace_zone: tray
+    workspace_roi_profile: cam3_live_tray
+    workspace_roi_enabled: true
+    workspace_roi_polygon_norm_xy:
+    - 0.235156
+    - 0.311111
+    - 0.735938
+    - 0.302778
+    - 0.770312
+    - 0.858333
+    - 0.198437
+    - 0.843056
+    # Accept only when a clear majority of the detected mask is in the ROI.
+    workspace_roi_minimum_mask_overlap: 0.7
+    workspace_roi_require_mask_centroid_inside: true

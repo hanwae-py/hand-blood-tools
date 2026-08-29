@@ -1,0 +1,29 @@
+[Unit]
+Description=Taskplanner shared RF-DETR TensorRT dynamic-batch server
+Documentation=file://%h/projects/hand-blood-tools/scripts/run_tool_trt_server.sh
+PartOf=taskplanner-perception-stack.target
+ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_tool_trt_server.sh
+ConditionPathExists=%h/projects/hand-blood-tools/models/tensorrt/rfdetr_seg_xlarge_fp16_b1-3_sm86.plan
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/hand-blood-tools
+Environment=ROS_DOMAIN_ID=0
+Environment=PYTHONUNBUFFERED=1
+Environment=TOOL_TRT_SERVER_SOCKET=%t/pnu-rfdetr-trt.sock
+Environment=TOOL_TRT_STATS_PATH=%t/pnu-rfdetr-trt-stats.json
+Environment=TOOL_TRT_MIN_BATCH_SIZE=1
+Environment=TOOL_TRT_OPT_BATCH_SIZE=3
+Environment=TOOL_TRT_MAX_BATCH_SIZE=1
+Environment=TOOL_TRT_ENGINE=%h/projects/hand-blood-tools/models/tensorrt/rfdetr_seg_xlarge_fp16_b1-3_sm86.plan
+Environment=TOOL_TRT_BATCH_WINDOW_MS=0.0
+ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_tool_trt_server.sh
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=taskplanner-perception-stack.target

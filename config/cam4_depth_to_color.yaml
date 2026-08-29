@@ -1,8 +1,23 @@
-# Shared CAM4 depth-to-color extrinsics (same values as native Tool pose yaml).
-# Native Ubuntu 24.04 / ROS 2 Jazzy deploy: Hand and Blood load this file.
+# CAM4 native-depth registration contract for Hand.
+# Runtime uses the latched ingress Extrinsics topic. The values below are a
+# column-major reference only and are not a fallback while
+# require_extrinsics_topic=true.
 /**:
   ros__parameters:
     depth_scale_m_per_unit: 0.001
+    # Use the validated native CUDA registrar. A native failure switches once
+    # to the NumPy oracle and remains visibly degraded until service restart.
+    depth_registration_backend: "cuda"
+    depth_registration_allow_sticky_numpy_fallback: true
+    require_extrinsics_topic: true
+    minimum_depth_to_color_baseline_m: 0.02
+    maximum_depth_to_color_baseline_m: 0.12
+    expected_depth_to_color_translation_direction: [-1.0, 0.0, 0.0]
+    minimum_depth_to_color_direction_cosine: 0.95
+    depth_to_color_rotation_orthonormal_tolerance: 0.0001
+    depth_to_color_rotation_determinant_tolerance: 0.0001
+    expected_color_frame: "cam_4_color_optical_frame"
+    expected_depth_frame: "cam_4_depth_optical_frame"
     depth_to_color_rotation:
       - 0.9999935626983643
       - -0.0015063914470374584
@@ -17,4 +32,38 @@
       - -0.059281326830387115
       - -0.000027586851501837373
       - 0.00048295879969373345
-    calibration_version: "reference_mcap_20260814_cam4_provisional"
+    calibration_version: "cam4_live_factory_depth_scale_and_workplane_20260822"
+
+    # Camera-view contract: only the surgeon's right hand may enter CAM4.
+    # This deterministic policy replaces MediaPipe's glove-sensitive per-frame
+    # handedness result for keypoints, gestures, and palm-facing sign selection.
+    flip_handedness: false
+    forced_handedness_label: "Right"
+
+    # Semantic palm-facing classifier. The table-up normal is copied from the
+    # approved CAM4 AprilGrid work-plane fit in cam4_live_native_pose.yaml.
+    # CAM4 is not mirrored. The right-hand-only view contract above selects
+    # the explicit Right sign; the Left sign remains defined for fail-closed
+    # configuration completeness but is not expected in this camera view.
+    palm_facing_enabled: true
+    palm_table_up_normal:
+      - 0.16141088206958792
+      - 0.008033494407223672
+      - -0.9868545942118964
+    palm_support_plane_offset_m: 0.833650819118987
+    palm_normal_sign_left: -1.0
+    palm_normal_sign_right: 1.0
+    palm_facing_expected_flip_handedness: false
+    palm_facing_enter_cosine: 0.75
+    palm_facing_hold_cosine: 0.60
+    palm_facing_filter_alpha: 0.50
+    palm_facing_max_plane_residual_m: 0.012
+    palm_facing_min_span_m: 0.025
+    palm_facing_min_handedness_score: 0.60
+    palm_facing_calibration_version: "cam4_live_aprilgrid_depth_workplane_20260822"
+    # The policy version records that chirality comes from the camera-view
+    # constraint. Physical palm-up/down sign verification remains pending.
+    palm_facing_handedness_mapping_version: "cam4_forced_right_camera_constraint_v1_pending_live_check"
+    palm_facing_mapping_verified: false
+    palm_facing_min_support_height_m: 0.008
+    palm_facing_max_support_height_m: 0.25

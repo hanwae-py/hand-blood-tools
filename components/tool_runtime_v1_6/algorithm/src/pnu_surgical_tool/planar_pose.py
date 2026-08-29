@@ -260,7 +260,7 @@ def _sign_policy(class_name: str) -> str:
     if class_name == "Army-Navy Retractor":
         return "cam4_positive_axis"
     if class_name == "Adson Forceps":
-        return "adson_tip_taper"
+        return "smaller_end_is_handle"
     if class_name == "Bipolar Forceps":
         return "bipolar_connector_taper"
     return "larger_end_is_handle"

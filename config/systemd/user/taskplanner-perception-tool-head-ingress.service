@@ -1,0 +1,29 @@
+[Unit]
+Description=Taskplanner EIR Head Tool segmentation and pose perception
+Documentation=file://%h/projects/hand-blood-tools/scripts/run_tool_v16.sh
+Requires=taskplanner-perception-head-ingress.service taskplanner-perception-tool-trt-server.service
+After=taskplanner-perception-head-ingress.service taskplanner-perception-tool-trt-server.service
+PartOf=taskplanner-perception-stack.target
+ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_tool_v16.sh
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/hand-blood-tools
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+Environment=PERCEPTION_DDS_PROFILE=local-fast
+Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
+Environment=PYTHONUNBUFFERED=1
+Environment=TOOL_MODEL_SIZE=xlarge
+Environment=TOOL_TRT_SERVER_SOCKET=%t/pnu-rfdetr-trt.sock
+Environment=TOOL_TRT_REQUEST_TIMEOUT_SEC=10.0
+ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_tool_v16.sh head
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=45
+
+[Install]
+WantedBy=taskplanner-perception-stack.target

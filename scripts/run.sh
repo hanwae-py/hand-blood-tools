@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The perception stack: CAM3/CAM4 ingress, CAM3 Tool, concurrent CAM4
-# Tool/Hand/Blood, and the final Debug overlay.  Each child script owns its own
-# DDS profile and ROS environment.
+# The complete perception stack: four-camera ingress, CAM3/CAM4 Tool,
+# CAM1/CAM3/CAM4 Hand, FLIR Blood, quality selection, and 2x2 operator view.
+# Each child script owns its own DDS profile and ROS environment.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -21,9 +21,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"${ROOT}/scripts/run_perception_ingress.sh" both & PIDS+=("$!")
+"${ROOT}/scripts/run_perception_ingress.sh" all & PIDS+=("$!")
 "${ROOT}/scripts/run_tool_v16.sh" cam_3 & PIDS+=("$!")
 "${ROOT}/scripts/run_perception_concurrent_ingress.sh" & PIDS+=("$!")
+"${ROOT}/scripts/run_hand_cam4.sh" cam_1 -p autostart:=true & PIDS+=("$!")
+"${ROOT}/scripts/run_hand_cam4.sh" cam_3 -p autostart:=true & PIDS+=("$!")
+"${ROOT}/scripts/run_blood_cam4.sh" flir -p autostart:=true & PIDS+=("$!")
+"${ROOT}/scripts/run_multiview_hand_fusion.sh" & PIDS+=("$!")
 "${ROOT}/scripts/run_final_overlay.sh" & PIDS+=("$!")
-echo 'Perception stack started: cam_3 + cam_4 ingress, CAM3 Tool, CAM4 Tool + Hand + Blood, final overlay'
-wait
+"${ROOT}/scripts/run_operator_quad.sh" & PIDS+=("$!")
+echo 'Perception stack started: CAM1/CAM3/CAM4 Hand, CAM3/CAM4 Tool, FLIR Blood, fused selection, 2x2 overlay'
+wait -n "${PIDS[@]}"
+exit 1

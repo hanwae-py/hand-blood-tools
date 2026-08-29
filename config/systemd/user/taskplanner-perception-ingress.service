@@ -1,5 +1,5 @@
 [Unit]
-Description=Taskplanner perception ingress (CAM3 and CAM4 local fan-out)
+Description=Taskplanner perception ingress (CAM1 CAM3 CAM4 FLIR local fan-out)
 Documentation=file://%h/projects/hand-blood-tools/scripts/run_perception_ingress.sh
 After=network-online.target
 Wants=network-online.target
@@ -17,7 +17,7 @@ Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 Environment=PERCEPTION_DDS_PROFILE=local-fast
 Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_perception_ingress.sh both
+ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_perception_ingress.sh all
 Restart=always
 RestartSec=3
 KillMode=control-group

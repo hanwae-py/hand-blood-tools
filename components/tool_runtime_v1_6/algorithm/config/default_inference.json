@@ -1,9 +1,9 @@
 {
   "schema": "pnu.surgical_tool.inference_config.v1",
-  "model_size": "small",
-  "architecture": "RFDETRSegSmall",
+  "model_size": "xlarge",
+  "architecture": "RFDETRSegXLarge",
   "confidence_threshold": 0.3,
-  "enable_class_agnostic_nms": true,
+  "enable_class_agnostic_nms": false,
   "class_agnostic_nms_iou": 0.8,
   "workspace_roi": {
     "enabled": false,
@@ -22,7 +22,7 @@
     "maximum_mask_area_ratio": 3.0,
     "max_missed_frames": 3
   },
-  "checkpoint_input_color_order": "BGR",
+  "checkpoint_input_color_order": "RGB",
   "optimize": true,
   "jit_compile": true,
   "fp16": true,

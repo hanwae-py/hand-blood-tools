@@ -50,9 +50,10 @@ def test_model_selection_color_contract_and_default_nms(
     def loader_class(name: str):
         class _Loader:
             @classmethod
-            def from_checkpoint(cls, path):
+            def from_checkpoint(cls, path, *, device):
                 del cls
                 assert path == str(tmp_path / "model.pth")
+                assert device == "cpu"
                 loaded_classes.append(name)
                 model = _FakePredictionModel()
                 prediction_models.append(model)
@@ -95,6 +96,17 @@ def test_model_selection_color_contract_and_default_nms(
     assert len(result.instances) == expected_instances
 
 
+def test_detector_config_defaults_to_xlarge():
+    from pnu_surgical_tool import DetectorConfig
+
+    config = DetectorConfig(
+        checkpoint_path="unused.pth",
+        ontology_path="unused.json",
+    )
+
+    assert config.model_size == "xlarge"
+
+
 def test_rejects_unknown_model_size(tmp_path):
     from pnu_surgical_tool import DetectorConfig, SurgicalToolDetector
 
@@ -107,3 +119,83 @@ def test_rejects_unknown_model_size(tmp_path):
                 model_size="2xlarge",  # type: ignore[arg-type]
             )
         )
+
+
+def test_shared_trt_backend_does_not_import_or_load_local_rfdetr(
+    tmp_path, monkeypatch
+):
+    import builtins
+
+    from pnu_surgical_tool import DetectorConfig, SurgicalToolDetector
+    from pnu_surgical_tool import rfdetr_inference
+    from pnu_surgical_tool.trt_batch import RemotePrediction
+
+    checkpoint = tmp_path / "model.pth"
+    checkpoint.touch()
+    ontology = tmp_path / "ontology.json"
+    ontology.write_text(
+        '{"schema":"test","canonical_tool_classes":['
+        + ",".join(
+            f'{{"canonical_id":{index},"canonical_name":"tool-{index}"}}'
+            for index in range(1, 9)
+        )
+        + "]}",
+        encoding="utf-8",
+    )
+    imports: list[str] = []
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "rfdetr" or name.startswith("rfdetr."):
+            imports.append(name)
+            raise AssertionError("shared TRT client must not import RF-DETR")
+        return real_import(name, *args, **kwargs)
+
+    class FakeClient:
+        def __init__(self, socket, camera, **kwargs):
+            assert socket == "/tmp/shared.sock"
+            assert camera == "cam_4"
+            assert kwargs["expected_model_size"] == "xlarge"
+            self.last_diagnostics = {}
+
+        def ping(self):
+            return {
+                "model_size": "xlarge",
+                "maximum_batch_size": 3,
+                "engine_sha256": "engine",
+            }
+
+        def predict(self, image, threshold):
+            assert image.shape == (2, 3, 3)
+            assert threshold == pytest.approx(0.3)
+            self.last_diagnostics = {"batch_size": 3}
+            return RemotePrediction(
+                xyxy=np.asarray([[0, 0, 3, 2]], dtype=np.float32),
+                class_id=np.asarray([0], dtype=np.int32),
+                confidence=np.asarray([0.9], dtype=np.float32),
+                mask=np.ones((1, 2, 3), dtype=bool),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(rfdetr_inference, "BatchInferenceClient", FakeClient)
+    detector = SurgicalToolDetector(
+        DetectorConfig(
+            checkpoint_path=checkpoint,
+            ontology_path=ontology,
+            model_size="xlarge",
+            trt_server_socket="/tmp/shared.sock",
+            trt_camera_key="cam_4",
+        )
+    )
+
+    result = detector.predict(
+        np.zeros((2, 3, 3), dtype=np.uint8), color_order="RGB"
+    )
+
+    assert imports == []
+    assert detector.runtime_backend == "tensorrt_shared_dynamic_batch"
+    assert detector.last_runtime_diagnostics["batch_size"] == 3
+    assert len(result.instances) == 1

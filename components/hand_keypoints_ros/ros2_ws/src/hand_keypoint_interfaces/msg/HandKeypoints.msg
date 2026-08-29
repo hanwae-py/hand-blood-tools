@@ -5,5 +5,5 @@
 # joints_3d (+ palm_6d) together, so no separate 3D-conversion node is
 # needed downstream.
 std_msgs/Header header
-string depth_source   # "real" (RealSense-style aligned depth) or "mono" (Depth-Anything V2 fallback)
+string depth_source   # "real", "mono" (Depth-Anything V2), or "rgb_only" (no metric depth claims)
 Hand[] hands

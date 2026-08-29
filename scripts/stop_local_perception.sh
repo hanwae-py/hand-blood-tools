@@ -9,6 +9,8 @@ PATTERNS=(
   'pnu_surgical_perception/lib/pnu_surgical_perception/perception_ingress'
   'pnu_surgical_perception/lib/pnu_surgical_perception/native_depth_tool_pose'
   'pnu_surgical_perception/lib/pnu_surgical_perception/final_overlay_compositor'
+  'pnu_surgical_perception/lib/pnu_surgical_perception/operator_quad_compositor'
+  'pnu_surgical_perception/lib/pnu_surgical_perception/multiview_hand_fusion'
   'pnu_surgical_perception/lib/pnu_surgical_perception/debug_overlay_compositor'
   'hand_keypoint_ros/lib/hand_keypoint_ros/hand_detection_node'
   'surgical_task_coordinator/lib/surgical_task_coordinator/blood_detection_node'
@@ -21,6 +23,8 @@ PATTERNS=(
   'scripts/run_hand_cam4.sh'
   'scripts/run_blood_cam4.sh'
   'scripts/run_final_overlay.sh'
+  'scripts/run_multiview_hand_fusion.sh'
+  'scripts/run_operator_quad.sh'
 )
 
 printf 'Stopping local perception processes...\n'
@@ -45,10 +49,14 @@ set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 set -u
 printf 'Stopping local ros2 daemon...\n'
-ros2 daemon stop >/dev/null 2>&1 || true
+# The CLI daemon is not required by the perception nodes.  A stale daemon or
+# orphaned ros2 CLI client can otherwise block this cleanup forever and prevent
+# the Desktop launcher from ever reaching systemd startup.
+timeout --signal=TERM --kill-after=2s 5s \
+  ros2 daemon stop >/dev/null 2>&1 || true
 
 printf '\nRemaining local perception processes:\n'
-left="$(ps -eo pid,cmd | grep -E 'perception_ingress|hand_detection_node|native_depth_tool_pose|blood_detection_node|final_overlay_compositor|debug_overlay_compositor|perception_mode_coordinator|v14_tool_lifecycle_gate' | grep -v grep || true)"
+left="$(ps -eo pid,cmd | grep -E 'perception_ingress|hand_detection_node|native_depth_tool_pose|blood_detection_node|final_overlay_compositor|operator_quad_compositor|multiview_hand_fusion|debug_overlay_compositor|perception_mode_coordinator|v14_tool_lifecycle_gate' | grep -v grep || true)"
 if [[ -z "${left}" ]]; then
   printf '  (none)\n'
 else

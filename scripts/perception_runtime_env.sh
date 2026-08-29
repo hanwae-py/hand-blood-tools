@@ -31,3 +31,8 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export PERCEPTION_DDS_PROFILE="${PROFILE}"
 export CYCLONEDDS_URI="file://${PROFILE_FILE}"
 unset ROS_LOCALHOST_ONLY
+
+# Keep the dedicated Conda runtimes isolated from packages installed in the
+# login user's ~/.local tree.  In particular, a user-site NumPy 2.x must not
+# override the NumPy 1.x ABI used by ROS cv_bridge and these model runtimes.
+export PYTHONNOUSERSITE=1

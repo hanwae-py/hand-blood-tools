@@ -4,8 +4,8 @@
   <name>hand_keypoint_interfaces</name>
   <version>0.1.0</version>
   <description>
-    Custom ROS2 messages for hand-keypoint + palm-6D detection results
-    (HandKeypoints, Hand, PalmPose6D, Point2D). Kept in its own package,
+    Custom ROS2 messages for hand-keypoint, official MediaPipe gesture,
+    and palm-6D detection results. Kept in its own package,
     separate from hand_keypoint_ros, so any node can depend on the
     message types without pulling in mediapipe/torch/opencv.
   </description>

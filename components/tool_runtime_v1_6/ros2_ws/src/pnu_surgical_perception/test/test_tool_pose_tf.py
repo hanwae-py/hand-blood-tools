@@ -103,15 +103,17 @@ def test_constrained_planar_pose_becomes_timestamped_unit_se3_transform():
 
 
 @pytest.mark.parametrize(
-    ('field', 'value', 'reason'),
+    ('field', 'value'),
     [
-        ('validity', ToolPose.VALIDITY_DEGRADED, 'POSE_VALIDITY_NOT_VALID'),
-        ('position_valid', False, 'POSITION_INVALID'),
-        ('orientation_valid', False, 'ORIENTATION_INVALID'),
+        ('validity', ToolPose.VALIDITY_DEGRADED),
+        ('validity', ToolPose.VALIDITY_INVALID),
+        ('position_valid', False),
+        ('orientation_valid', False),
+        ('dof_observed', [True, True, True, False, False, False]),
     ],
 )
-def test_invalid_or_degraded_tool_never_creates_a_tf_transform(
-    field: str, value: object, reason: str
+def test_quality_flags_do_not_suppress_a_numeric_measured_tf(
+    field: str, value: object
 ):
     tool = _valid_planar_tool()
     setattr(tool, field, value)
@@ -120,11 +122,11 @@ def test_invalid_or_degraded_tool_never_creates_a_tf_transform(
         _header(), tool, 'cam_4', track_id=1
     )
 
-    assert decision.transform is None
-    assert decision.reason == reason
+    assert decision.transform is not None
+    assert decision.reason == 'PUBLISHED'
 
 
-def test_tf_rejects_a_pose_that_claims_different_dof_provenance():
+def test_tf_accepts_numeric_pose_when_reported_dof_quality_differs():
     tool = _valid_planar_tool()
     tool.dof_observed = [True, True, True, True, True, True]
 
@@ -132,8 +134,27 @@ def test_tf_rejects_a_pose_that_claims_different_dof_provenance():
         _header(), tool, 'cam_4', track_id=1
     )
 
+    assert decision.transform is not None
+    assert decision.reason == 'PUBLISHED'
+
+
+def test_tf_still_rejects_a_pose_without_a_numeric_orientation():
+    tool = _valid_planar_tool()
+    tool.validity = ToolPose.VALIDITY_INVALID
+    tool.position_valid = False
+    tool.orientation_valid = False
+    tool.dof_observed = [False] * 6
+    tool.pose.orientation.x = 0.0
+    tool.pose.orientation.y = 0.0
+    tool.pose.orientation.z = 0.0
+    tool.pose.orientation.w = 0.0
+
+    decision = constrained_transform_from_tool_pose(
+        _header(), tool, 'cam_4', track_id=1
+    )
+
     assert decision.transform is None
-    assert decision.reason == 'PLANAR_DOF_CONTRACT_INVALID'
+    assert decision.reason == 'ORIENTATION_ZERO_NORM'
 
 
 def test_track_name_is_camera_qualified_and_never_contains_frame_local_id():
@@ -334,7 +355,7 @@ def test_spatial_selector_reindexes_after_left_item_disappears_by_design():
     assert selector.expired_total == 1
 
 
-def test_invalid_left_selector_reserves_ordinal_but_emits_no_tf():
+def test_degraded_left_selector_reserves_ordinal_and_emits_measured_tf():
     selector = _spatial_selector()
     left = _valid_planar_tool(local_id=1, horizontal_u_px=100.0)
     left.validity = ToolPose.VALIDITY_DEGRADED
@@ -343,8 +364,8 @@ def test_invalid_left_selector_reserves_ordinal_but_emits_no_tf():
     decisions = selector.assign(_header(100, 0), [left, right], 'tray')
 
     assert decisions[0].child_frame_id == 'tray_army#1'
-    assert decisions[0].transform is None
-    assert decisions[0].reason == 'POSE_VALIDITY_NOT_VALID'
+    assert decisions[0].transform is not None
+    assert decisions[0].reason == 'PUBLISHED'
     assert decisions[1].child_frame_id == 'tray_army#2'
     assert decisions[1].transform is not None
 

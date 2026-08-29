@@ -1,7 +1,7 @@
-"""Single-subscription ingress for the VIPLab camera streams.
+"""Single-subscription ingress for the external camera streams.
 
-Each instance owns one camera's external ``/synced`` subscriptions and fans
-the messages out locally under ``/perception/ingress``.  It deliberately does
+Each instance owns one camera's external source subscriptions and fans the
+messages out locally under ``/perception/ingress``.  It deliberately does
 not decode, pair, retimestamp, or buffer frames: the source header and the
 calibration payload are the contract passed to the local workers.
 """
@@ -21,15 +21,37 @@ from realsense2_camera_msgs.msg import Extrinsics
 from sensor_msgs.msg import CameraInfo, CompressedImage
 
 
+EIR_ALIGNED_DEPTH_CAMERAS = frozenset({'head', 'suction'})
+DEPTH_CAPABLE_CAMERAS = frozenset(
+    {'cam_1', 'cam_2', 'cam_3', 'cam_4', *EIR_ALIGNED_DEPTH_CAMERAS}
+)
+# The end-effector EIR relays currently expose RGB only. Head and suction
+# publish 16UC1 depth already aligned into their color optical frames.
+EIR_RGB_ONLY_CAMERAS = frozenset({'left_ee', 'right_ee'})
+EIR_CAMERAS = frozenset(
+    {*EIR_ALIGNED_DEPTH_CAMERAS, *EIR_RGB_ONLY_CAMERAS}
+)
+EXTRINSICS_CAPABLE_CAMERAS = frozenset({'cam_1', 'cam_2', 'cam_3', 'cam_4'})
+SUPPORTED_CAMERAS = frozenset((*DEPTH_CAPABLE_CAMERAS, *EIR_RGB_ONLY_CAMERAS, 'flir'))
+
+
 def canonical_camera(camera: str) -> str:
     """Normalize a supported camera selector without accepting arbitrary paths."""
-    raw = str(camera).strip().removeprefix('/synced/').split('/', 1)[0]
+    raw = str(camera).strip()
+    for prefix in ('/synced/', '/eir/camera/'):
+        if raw.startswith(prefix):
+            raw = raw.removeprefix(prefix)
+            break
+    raw = raw.split('/', 1)[0]
     if raw.isdigit():
         raw = f'cam_{raw}'
     elif raw.startswith('cam') and raw[3:].isdigit():
         raw = f'cam_{raw[3:]}'
-    if raw not in {'cam_3', 'cam_4'}:
-        raise ValueError('camera must be cam_3 or cam_4')
+    if raw not in SUPPORTED_CAMERAS:
+        raise ValueError(
+            'camera must be cam_1, cam_2, cam_3, cam_4, flir, suction, '
+            'head, left_ee, or right_ee'
+        )
     return raw
 
 
@@ -53,8 +75,45 @@ class IngressTopics:
 def ingress_topics(camera: str) -> IngressTopics:
     """Return the fixed one-to-one source/fan-out mapping for ``camera``."""
     normalized = canonical_camera(camera)
-    remote = f'/synced/{normalized}'
     local = f'/perception/ingress/{normalized}'
+    if normalized in EIR_ALIGNED_DEPTH_CAMERAS:
+        remote = f'/eir/camera/{normalized}'
+        return IngressTopics(
+            camera=normalized,
+            remote_color=f'{remote}/color/image_raw/compressed',
+            remote_depth=(
+                f'{remote}/aligned_depth_to_color/image_raw/compressedDepth'
+            ),
+            remote_color_info=f'{remote}/color/camera_info',
+            remote_depth_info=f'{remote}/aligned_depth_to_color/camera_info',
+            # EIR publishes depth already aligned to color, so no extrinsics
+            # message is needed or expected for this source.
+            remote_extrinsics=f'{remote}/extrinsics/depth_to_color',
+            local_color=f'{local}/color/image_raw/compressed',
+            local_depth=f'{local}/depth/image_rect_raw/compressedDepth',
+            local_color_info=f'{local}/color/camera_info',
+            local_depth_info=f'{local}/depth/camera_info',
+            local_extrinsics=f'{local}/extrinsics/depth_to_color',
+        )
+    if normalized in EIR_RGB_ONLY_CAMERAS:
+        remote = f'/eir/camera/{normalized}'
+        # Depth/extrinsics fields remain absolute only because the generic
+        # parameter schema validates every name.  This RGB-only ingress never
+        # subscribes to or advertises those unused fields.
+        return IngressTopics(
+            camera=normalized,
+            remote_color=f'{remote}/color/image_raw/compressed',
+            remote_depth=f'{remote}/depth/image_rect_raw/compressedDepth',
+            remote_color_info=f'{remote}/color/camera_info',
+            remote_depth_info=f'{remote}/depth/camera_info',
+            remote_extrinsics=f'{remote}/extrinsics/depth_to_color',
+            local_color=f'{local}/color/image_raw/compressed',
+            local_depth=f'{local}/depth/image_rect_raw/compressedDepth',
+            local_color_info=f'{local}/color/camera_info',
+            local_depth_info=f'{local}/depth/camera_info',
+            local_extrinsics=f'{local}/extrinsics/depth_to_color',
+        )
+    remote = f'/synced/{normalized}'
     return IngressTopics(
         camera=normalized,
         remote_color=f'{remote}/color/image_raw/compressed',
@@ -70,8 +129,18 @@ def ingress_topics(camera: str) -> IngressTopics:
     )
 
 
+def camera_has_depth(camera: str) -> bool:
+    """Return whether the live camera contract actually publishes depth."""
+    return canonical_camera(camera) in DEPTH_CAPABLE_CAMERAS
+
+
+def camera_has_extrinsics(camera: str) -> bool:
+    """Return whether the source publishes a depth-to-color transform."""
+    return canonical_camera(camera) in EXTRINSICS_CAPABLE_CAMERAS
+
+
 def image_reader_qos() -> QoSProfile:
-    """The operating image-reader contract: no backlog and no retransmits."""
+    """Return the image-reader contract with no backlog or retransmits."""
     return QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
@@ -88,6 +157,25 @@ def camera_info_qos() -> QoSProfile:
         reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.VOLATILE,
     )
+
+
+def remote_camera_info_qos(camera: str) -> QoSProfile:
+    """Match each external source while retaining reliable local fan-out.
+
+    EIR's camera publishers offer CameraInfo with the same
+    sensor-data QoS as their images.  A RELIABLE reader is incompatible with
+    that BEST_EFFORT writer, so only these external EIR edges use
+    BEST_EFFORT.  The local CameraInfo publisher remains RELIABLE via
+    :func:`camera_info_qos`.
+    """
+    if canonical_camera(camera) in EIR_CAMERAS:
+        return QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=2,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+    return camera_info_qos()
 
 
 def local_extrinsics_qos() -> QoSProfile:
@@ -109,6 +197,8 @@ class PerceptionIngress(Node):
         camera = canonical_camera(str(self.get_parameter('camera').value))
         defaults = ingress_topics(camera)
         self._camera = camera
+        self._has_depth = camera_has_depth(camera)
+        self._has_extrinsics = camera_has_extrinsics(camera)
         for name, default in (
             ('remote_color_topic', defaults.remote_color),
             ('remote_depth_topic', defaults.remote_depth),
@@ -142,45 +232,63 @@ class PerceptionIngress(Node):
         }
 
         image_qos = image_reader_qos()
-        info_qos = camera_info_qos()
+        local_info_qos = camera_info_qos()
+        remote_info_qos = remote_camera_info_qos(camera)
         # ``Node`` reserves ``_publishers`` and ``_subscriptions`` for its
         # lifecycle bookkeeping.  Keep ingress-owned handles separate so
         # publishing and destroy_node() both use rclpy's intact collections.
         self._ingress_publishers = {
             'color': self.create_publisher(
                 CompressedImage, self._topics['local_color_topic'], image_qos),
-            'depth': self.create_publisher(
-                CompressedImage, self._topics['local_depth_topic'], image_qos),
             'color_info': self.create_publisher(
-                CameraInfo, self._topics['local_color_camera_info_topic'], info_qos),
-            'depth_info': self.create_publisher(
-                CameraInfo, self._topics['local_depth_camera_info_topic'], info_qos),
-            'extrinsics': self.create_publisher(
-                Extrinsics, self._topics['local_extrinsics_topic'], local_extrinsics_qos()),
+                CameraInfo, self._topics['local_color_camera_info_topic'], local_info_qos),
         }
+        if self._has_depth:
+            self._ingress_publishers.update({
+                'depth': self.create_publisher(
+                    CompressedImage, self._topics['local_depth_topic'], image_qos),
+                'depth_info': self.create_publisher(
+                    CameraInfo, self._topics['local_depth_camera_info_topic'], local_info_qos),
+            })
+        if self._has_extrinsics:
+            self._ingress_publishers.update({
+                'extrinsics': self.create_publisher(
+                    Extrinsics, self._topics['local_extrinsics_topic'],
+                    local_extrinsics_qos()),
+            })
         self._ingress_subscriptions = [
             self.create_subscription(
                 CompressedImage, self._topics['remote_color_topic'],
                 lambda message: self._forward('color', message), image_qos),
-            self.create_subscription(
-                CompressedImage, self._topics['remote_depth_topic'],
-                lambda message: self._forward('depth', message), image_qos),
-            # CameraInfo remains reliable for the native-depth, Hand, and
-            # Blood calibration contract; it is not an image reader.
+            # Match the external writer here; local CameraInfo fan-out stays
+            # RELIABLE for the native-depth, Hand, and Blood calibration
+            # contract.
             self.create_subscription(
                 CameraInfo, self._topics['remote_color_camera_info_topic'],
-                lambda message: self._forward('color_info', message), info_qos),
-            self.create_subscription(
-                CameraInfo, self._topics['remote_depth_camera_info_topic'],
-                lambda message: self._forward('depth_info', message), info_qos),
-            self.create_subscription(
-                Extrinsics, self._topics['remote_extrinsics_topic'],
-                lambda message: self._forward('extrinsics', message), local_extrinsics_qos()),
+                lambda message: self._forward('color_info', message), remote_info_qos),
         ]
+        if self._has_depth:
+            self._ingress_subscriptions.extend([
+                self.create_subscription(
+                    CompressedImage, self._topics['remote_depth_topic'],
+                    lambda message: self._forward('depth', message), image_qos),
+                self.create_subscription(
+                    CameraInfo, self._topics['remote_depth_camera_info_topic'],
+                    lambda message: self._forward('depth_info', message), remote_info_qos),
+            ])
+        if self._has_extrinsics:
+            self._ingress_subscriptions.extend([
+                self.create_subscription(
+                    Extrinsics, self._topics['remote_extrinsics_topic'],
+                    lambda message: self._forward('extrinsics', message),
+                    local_extrinsics_qos()),
+            ])
         self.get_logger().info(
             f'{self._camera} ingress: {self._topics["remote_color_topic"]} -> '
             f'{self._topics["local_color_topic"]}; image reader QoS is '
-            'BEST_EFFORT/VOLATILE/KEEP_LAST(1)')
+            'BEST_EFFORT/VOLATILE/KEEP_LAST(1); '
+            f'depth_capable={self._has_depth}; '
+            f'extrinsics_capable={self._has_extrinsics}')
 
     def _forward(self, kind: str, message: Any) -> None:
         """Publish the original object unchanged, including its source header."""

@@ -1,0 +1,42 @@
+# CAM2 native-depth registration and palm-facing contract for Hand.
+# The depth stream, CameraInfo, and factory depth-to-color Extrinsics are
+# expected on the standard /synced/cam_2 topics.  Until they are all usable,
+# the node falls back to 2-D RGB observations and makes no metric claim.
+/**:
+  ros__parameters:
+    depth_scale_m_per_unit: 0.001
+    require_extrinsics_topic: true
+    minimum_depth_to_color_baseline_m: 0.02
+    maximum_depth_to_color_baseline_m: 0.12
+    expected_depth_to_color_translation_direction: [-1.0, 0.0, 0.0]
+    minimum_depth_to_color_direction_cosine: 0.95
+    depth_to_color_rotation_orthonormal_tolerance: 0.0001
+    depth_to_color_rotation_determinant_tolerance: 0.0001
+    expected_color_frame: "cam_2_color_optical_frame"
+    expected_depth_frame: "cam_2_depth_optical_frame"
+    calibration_version: "cam2_live_factory_depth_to_color_expected_20260825"
+
+    # Derived from the working CAM4 surgical-table plane through the current
+    # multicamera calibration (extrinsics.json SHA-256 9050fd83871c...).
+    # This is observation-only: the MediaPipe left/right sign mapping remains
+    # explicitly unverified and no target pose is published.
+    palm_facing_enabled: true
+    palm_table_up_normal:
+      - 0.06649543891386123
+      - 0.7484454330028176
+      - -0.6598543706158707
+    palm_support_plane_offset_m: 0.7182477012374161
+    palm_normal_sign_left: -1.0
+    palm_normal_sign_right: 1.0
+    palm_facing_expected_flip_handedness: false
+    palm_facing_enter_cosine: 0.75
+    palm_facing_hold_cosine: 0.60
+    palm_facing_filter_alpha: 0.50
+    palm_facing_max_plane_residual_m: 0.012
+    palm_facing_min_span_m: 0.025
+    palm_facing_min_handedness_score: 0.60
+    palm_facing_calibration_version: "cam2_from_cam4_plane_multicam_9050fd83871c_20260825"
+    palm_facing_handedness_mapping_version: "mediapipe_nonmirrored_convention_v1_pending_live_check"
+    palm_facing_mapping_verified: false
+    palm_facing_min_support_height_m: 0.008
+    palm_facing_max_support_height_m: 0.25

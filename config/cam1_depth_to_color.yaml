@@ -1,0 +1,58 @@
+# CAM1 native-depth registration and palm-facing contract for Hand.
+# The depth stream and both CameraInfo topics are live on /synced/cam_1.
+# The relay publishes depth_to_color for device serial 339522301105.  The
+# reference below came from a read-only RealSense factory SDK query on
+# 2026-08-25 and is retained as an explicit validation record; runtime metric
+# registration requires the live topic.
+/**:
+  ros__parameters:
+    depth_scale_m_per_unit: 0.001
+    require_extrinsics_topic: true
+    minimum_depth_to_color_baseline_m: 0.02
+    maximum_depth_to_color_baseline_m: 0.12
+    expected_depth_to_color_translation_direction: [-1.0, 0.0, 0.0]
+    minimum_depth_to_color_direction_cosine: 0.95
+    depth_to_color_rotation_orthonormal_tolerance: 0.0001
+    depth_to_color_rotation_determinant_tolerance: 0.0001
+    expected_color_frame: "cam_1_color_optical_frame"
+    expected_depth_frame: "cam_1_depth_optical_frame"
+    depth_to_color_rotation:
+      - 0.999999
+      - 0.000452135
+      - -0.00163485
+      - -0.000453687
+      - 0.999999
+      - -0.000949134
+      - 0.00163442
+      - 0.000949875
+      - 0.999998
+    depth_to_color_translation_m:
+      - -0.0589403249323368
+      - -0.000302123167784885
+      - 0.000325963395880535
+    calibration_version: "cam1_factory_sdk_serial_339522301105_20260825"
+
+    # CAM1 is the reference frame of the current multicamera calibration
+    # (extrinsics.json SHA-256 9050fd83871c...). The surgical-table plane is
+    # the working CAM4 plane transformed into that reference frame. This is
+    # observation-only and the physical handedness sign check remains pending.
+    palm_facing_enabled: true
+    palm_table_up_normal:
+      - -0.19475190348418536
+      - -0.9808523964612392
+      - 0.0005219631509880158
+    palm_support_plane_offset_m: 0.21342265669985339
+    palm_normal_sign_left: -1.0
+    palm_normal_sign_right: 1.0
+    palm_facing_expected_flip_handedness: false
+    palm_facing_enter_cosine: 0.75
+    palm_facing_hold_cosine: 0.60
+    palm_facing_filter_alpha: 0.50
+    palm_facing_max_plane_residual_m: 0.012
+    palm_facing_min_span_m: 0.025
+    palm_facing_min_handedness_score: 0.60
+    palm_facing_calibration_version: "cam1_from_cam4_plane_multicam_9050fd83871c_20260825"
+    palm_facing_handedness_mapping_version: "mediapipe_nonmirrored_convention_v1_pending_live_check"
+    palm_facing_mapping_verified: false
+    palm_facing_min_support_height_m: 0.008
+    palm_facing_max_support_height_m: 0.25

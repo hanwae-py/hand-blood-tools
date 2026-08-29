@@ -1,8 +1,8 @@
 [Unit]
 Description=Taskplanner CAM3 Tool perception from local ingress
 Documentation=file://%h/projects/hand-blood-tools/scripts/run_tool_v16.sh
-Requires=taskplanner-perception-ingress.service
-After=taskplanner-perception-ingress.service
+Requires=taskplanner-perception-ingress.service taskplanner-perception-tool-trt-server.service
+After=taskplanner-perception-ingress.service taskplanner-perception-tool-trt-server.service
 PartOf=taskplanner-perception-ingress.service
 ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_tool_v16.sh
 StartLimitIntervalSec=60
@@ -16,6 +16,9 @@ Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 Environment=PERCEPTION_DDS_PROFILE=local-fast
 Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
 Environment=PYTHONUNBUFFERED=1
+Environment=TOOL_MODEL_SIZE=xlarge
+Environment=TOOL_TRT_SERVER_SOCKET=%t/pnu-rfdetr-trt.sock
+Environment=TOOL_TRT_REQUEST_TIMEOUT_SEC=10.0
 ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_tool_v16.sh cam_3
 Restart=always
 RestartSec=5

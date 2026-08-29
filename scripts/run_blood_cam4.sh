@@ -31,6 +31,13 @@ CAM_OVERRIDES=(
   -p "health_topic:=/perception/${CAM}/blood/health"
   -p "diagnostics_topic:=/perception/${CAM}/blood/diagnostics"
 )
+if [[ "${CAM}" == "flir" ]]; then
+  CAM_OVERRIDES+=(
+    -p reject_low_quality_input:=true
+    -p minimum_gray_p99:=20.0
+    -p minimum_gray_dynamic_range:=12.0
+  )
+fi
 if [[ -z "${CAM:-}" || "${CAM}" == "cam_4" ]]; then
   PARAM_FILE_ARGS=(--params-file "${ROOT}/config/cam4_depth_to_color.yaml")
 fi

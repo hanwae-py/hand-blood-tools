@@ -1,8 +1,8 @@
 [Unit]
-Description=Taskplanner CAM4 Tool Hand Blood concurrent perception from local ingress
+Description=Taskplanner CAM4 Tool and Hand concurrent perception from local ingress
 Documentation=file://%h/projects/hand-blood-tools/scripts/run_perception_concurrent_ingress.sh
-Requires=taskplanner-perception-ingress.service
-After=taskplanner-perception-ingress.service
+Requires=taskplanner-perception-ingress.service taskplanner-perception-tool-trt-server.service
+After=taskplanner-perception-ingress.service taskplanner-perception-tool-trt-server.service
 PartOf=taskplanner-perception-ingress.service
 ConditionPathExists=%h/projects/hand-blood-tools/scripts/run_perception_concurrent_ingress.sh
 StartLimitIntervalSec=60
@@ -16,6 +16,10 @@ Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 Environment=PERCEPTION_DDS_PROFILE=local-fast
 Environment=CYCLONEDDS_URI=file://%h/projects/hand-blood-tools/config/cyclonedds_perception_local_fast.xml
 Environment=PYTHONUNBUFFERED=1
+Environment=TOOL_MODEL_SIZE=xlarge
+Environment=TOOL_TRT_SERVER_SOCKET=%t/pnu-rfdetr-trt.sock
+Environment=TOOL_TRT_REQUEST_TIMEOUT_SEC=10.0
+Environment=PNU_DEPTH_REGISTRATION_CUDA_LIBRARY=/home/pnucvlab/opt/pnu-depth-registration-cuda-0.1.0-cuda12.8-sm86/lib/libpnu_depth_registration_cuda.so.1
 ExecStart=/usr/bin/bash %h/projects/hand-blood-tools/scripts/run_perception_concurrent_ingress.sh
 Restart=always
 RestartSec=8

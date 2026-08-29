@@ -2,8 +2,8 @@
 # subscribe to /perception/ingress/<cam>/... after apply_ingress_cam.
 # Source from a run script after config/system.env.
 # Any /synced name works: cam_1, cam_2, cam_3, cam_4, flir.
-# Also accepts 1, cam1, or /synced/cam_1. cam_1–3 and flir are RGB-only
-# on the current live graph; missing depth/camera_info is fine for 2D.
+# Also accepts 1, cam1, or /synced/cam_1. CAM1 and CAM2 support RGB-D with an
+# RGB-only fallback until registration inputs are usable; FLIR is RGB.
 
 _RESERVED_CAM_WORDS='^(all|help|tool|hand|blood|true|false)$'
 

@@ -1,0 +1,100 @@
+/**:
+  ros__parameters:
+    # EIR Head publishes uint16 depth already aligned to the color image.
+    # Pose coordinates therefore use eir_head_camera_color_optical_frame and
+    # must not be registered again or gated on a RealSense Extrinsics topic.
+    camera: "head"
+    rgb_topic: "/perception/ingress/head/color/image_raw/compressed"
+    color_camera_info_topic: "/perception/ingress/head/color/camera_info"
+    depth_topic: "/perception/ingress/head/depth/image_rect_raw/compressedDepth"
+    depth_camera_info_topic: "/perception/ingress/head/depth/camera_info"
+    extrinsics_topic: ""
+    require_depth: true
+    require_extrinsics_topic: false
+    depth_aligned_to_color: true
+    maximum_stamp_delta_ns: 1000000
+    sync_queue_size: 8
+    latest_frame_only: true
+
+    pose_topic: "/perception/head/tool/poses"
+    observation_topic: "/perception/head/tool/observations"
+    publish_class_masks: true
+    class_mask_topic_prefix: "/perception/head/tool/masks"
+    class_mask_names:
+      - "Scalpel"
+      - "Allis Forceps"
+      - "Mosquito"
+      - "Adson Forceps"
+      - "Bipolar Forceps"
+      - "Bovie"
+      - "Army-Navy Retractor"
+      - "Thyroid Retractor"
+    overlay_topic: "/perception/head/tool/overlay/compressed"
+    pose_overlay_topic: "/perception/head/tool/pose_overlay/compressed"
+    diagnostics_topic: "/perception/head/tool/diagnostics"
+    health_topic: "/perception/head/tool/health"
+    view: "head"
+    workspace_zone: "head_tray"
+
+    confidence_threshold: 0.3
+    adson_forceps_confidence_threshold: 0.3
+    enable_class_agnostic_nms: false
+    class_agnostic_nms_iou: 0.8
+
+    workspace_roi_profile: "none"
+    workspace_roi_enabled: false
+    workspace_roi_polygon_norm_xy:
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 1.0
+      - 1.0
+      - 0.0
+      - 1.0
+    workspace_roi_minimum_mask_overlap: 0.5
+    workspace_roi_require_mask_centroid_inside: true
+    temporal_class_smoothing_enabled: true
+    temporal_class_history_size: 7
+    temporal_class_minimum_switch_frames: 3
+    temporal_class_switch_score_margin: 0.2
+    temporal_association_minimum_mask_iou: 0.1
+    temporal_association_minimum_bbox_iou: 0.2
+    temporal_association_maximum_centroid_distance_norm: 0.06
+    temporal_association_maximum_mask_area_ratio: 3.0
+    temporal_track_max_missed_frames: 3
+    pose_axis_length_m: 0.05
+    optimize_for_inference: true
+    jit_compile: true
+    fp16: true
+    jpeg_quality: 90
+
+    # Verified from the live Head aligned-depth stream on 2026-08-29.
+    depth_scale_m_per_unit: 0.001
+    depth_scale_verified: true
+    minimum_depth_m: 0.05
+    maximum_depth_m: 10.0
+    depth_to_color_rotation_convention: "column_major"
+    expected_color_frame: "eir_head_camera_color_optical_frame"
+    expected_depth_frame: "eir_head_camera_color_optical_frame"
+    calibration_version: "eir_head_aligned_depth_20260829"
+
+    # Plane equation: normal dot point + offset = 0. This fit is tied to the
+    # current Head-camera/work-surface arrangement and must be recalibrated if
+    # either moves relative to the blue work surface.
+    support_plane_normal:
+      - 0.05325361813275131
+      - -0.6459346851056336
+      - -0.7615329505236511
+    support_plane_offset_m: 0.5950138233545244
+    support_plane_config_version: "eir_head_blue_work_surface_20260829"
+    support_plane_inlier_ratio: 0.6765333333333333
+    support_plane_residual_p95_m: 0.003597036340915155
+
+    publish_tool_tf: true
+    tf_stale_after_sec: 2.0
+    tf_max_future_sec: 0.5
+    tf_track_max_displacement_m: 0.10
+    tf_track_ttl_sec: 5.0
+    tf_track_max_active_per_class: 8
+    tf_track_reset_stamp_jump_sec: 5.0

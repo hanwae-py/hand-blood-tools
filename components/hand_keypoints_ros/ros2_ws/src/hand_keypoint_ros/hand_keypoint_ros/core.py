@@ -9,6 +9,7 @@ Keeping this logic in one place means both consumers stay in sync
 automatically instead of drifting apart as separate copies.
 """
 import contextlib
+import hashlib
 import json
 import os
 import sys
@@ -16,11 +17,35 @@ import sys
 import cv2
 import numpy as np
 
+from hand_keypoint_ros.topview_gesture import classify as classify_topview_gesture
+
 MEDIAPIPE_MODEL_URL = (
     'https://storage.googleapis.com/mediapipe-models/hand_landmarker/'
     'hand_landmarker/float16/latest/hand_landmarker.task')
+GESTURE_RECOGNIZER_MODEL_URL = (
+    'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/'
+    'gesture_recognizer/float16/1/gesture_recognizer.task')
+GESTURE_RECOGNIZER_MODEL_VERSION = 'float16/1'
+GESTURE_RECOGNIZER_MODEL_SHA256 = (
+    '97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482')
 MEDIAPIPE_CACHE = os.path.expanduser('~/.cache/mediapipe')
+DEFAULT_GESTURE_RECOGNIZER_MODEL = os.path.join(
+    MEDIAPIPE_CACHE, 'gesture_recognizer.task')
 DEFAULT_DEPTH_MODEL = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf'
+
+# MediaPipe's canned classifier has seven named gestures plus a rejection
+# category. Keep this order stable on the ROS wire even if MediaPipe happens
+# to return its Category list in a different order.
+CANNED_GESTURE_NAMES = (
+    'Closed_Fist',
+    'Open_Palm',
+    'Pointing_Up',
+    'Thumb_Down',
+    'Thumb_Up',
+    'Victory',
+    'ILoveYou',
+)
+GESTURE_OUTPUT_NAMES = ('None',) + CANNED_GESTURE_NAMES
 
 JOINT_NAMES = [
     'wrist',
@@ -72,10 +97,11 @@ def sample_depth_batch(depth_frame, uv, win=3):
     vs = np.clip(v[:, None] + dv[None, :], 0, H - 1)
     patches = depth_frame[vs, us].astype(np.float32)
     valid_2d = patches > 0
-    patches_nan = np.where(valid_2d, patches, np.nan)
-    with np.errstate(invalid='ignore'):
-        med = np.nanmedian(patches_nan, axis=1)
-    valid = ~np.isnan(med)
+    med = np.zeros(len(patches), dtype=np.float32)
+    valid = np.any(valid_2d, axis=1)
+    if np.any(valid):
+        patches_nan = np.where(valid_2d[valid], patches[valid], np.nan)
+        med[valid] = np.nanmedian(patches_nan, axis=1)
     med = np.where(valid, med, 0.0)
     return med, valid
 
@@ -160,6 +186,53 @@ def ensure_mediapipe_model():
     return p
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ensure_gesture_recognizer_model(model_path=None):
+    """Return the pinned official Gesture Recognizer asset path.
+
+    The task bundle includes the hand detector, hand landmarks and canned
+    gesture classifier. A digest check prevents silently running a different
+    or partially downloaded model while publishing the official-v1 contract.
+    """
+    path = os.path.expanduser(
+        model_path or DEFAULT_GESTURE_RECOGNIZER_MODEL)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if not os.path.exists(path):
+        import urllib.request
+        partial = path + '.partial'
+        print(f'downloading {GESTURE_RECOGNIZER_MODEL_URL} ...')
+        try:
+            urllib.request.urlretrieve(
+                GESTURE_RECOGNIZER_MODEL_URL, partial)
+            partial_digest = _sha256_file(partial)
+            if partial_digest != GESTURE_RECOGNIZER_MODEL_SHA256:
+                raise RuntimeError(
+                    'unexpected downloaded MediaPipe Gesture Recognizer '
+                    'asset digest: '
+                    f'expected={GESTURE_RECOGNIZER_MODEL_SHA256} '
+                    f'actual={partial_digest} path={partial}')
+            os.replace(partial, path)
+        finally:
+            if os.path.exists(partial):
+                os.unlink(partial)
+    actual = _sha256_file(path)
+    if actual != GESTURE_RECOGNIZER_MODEL_SHA256:
+        raise RuntimeError(
+            'unexpected MediaPipe Gesture Recognizer asset digest: '
+            f'expected={GESTURE_RECOGNIZER_MODEL_SHA256} actual={actual} '
+            f'path={path}')
+    return path
+
+
 def robot_position_target_px(robot_position, W, H):
     """Map a robot's physical corner position to the target pixel corner
     in the FRAME (not the robot's own left/right). This camera is not
@@ -220,6 +293,88 @@ def load_mediapipe(max_hands, cpu_only=False):
     return mp, hand_det
 
 
+def load_gesture_recognizer(max_hands, model_path=None, cpu_only=False):
+    """Load MediaPipe's official canned Gesture Recognizer in VIDEO mode.
+
+    The recognizer returns landmarks, handedness and gestures from one graph,
+    so callers do not need to run a second HandLandmarker and then guess how
+    two independent per-frame hand indices correspond.
+    """
+    import mediapipe as mp
+    from mediapipe.tasks.python import vision, BaseOptions
+    from mediapipe.tasks.python.components.processors import classifier_options
+
+    asset_path = ensure_gesture_recognizer_model(model_path)
+    canned_options = classifier_options.ClassifierOptions(
+        max_results=-1,
+        score_threshold=0.0,
+    )
+    common_kwargs = dict(
+        running_mode=vision.RunningMode.VIDEO,
+        num_hands=max_hands,
+        min_hand_detection_confidence=0.3,
+        min_hand_presence_confidence=0.3,
+        min_tracking_confidence=0.3,
+        canned_gesture_classifier_options=canned_options,
+    )
+    if cpu_only:
+        base_opts = BaseOptions(
+            model_asset_path=asset_path,
+            delegate=BaseOptions.Delegate.CPU,
+        )
+        recognizer = vision.GestureRecognizer.create_from_options(
+            vision.GestureRecognizerOptions(
+                base_options=base_opts, **common_kwargs))
+        print('MediaPipe gesture recognizer ready (CPU, forced by --cpu-only)')
+        return mp, recognizer
+    try:
+        base_opts = BaseOptions(
+            model_asset_path=asset_path,
+            delegate=BaseOptions.Delegate.GPU,
+        )
+        recognizer = vision.GestureRecognizer.create_from_options(
+            vision.GestureRecognizerOptions(
+                base_options=base_opts, **common_kwargs))
+        print('MediaPipe gesture recognizer ready (GPU delegate)')
+    except Exception as exc:
+        print(f'GPU delegate failed ({exc}) -- falling back to CPU')
+        base_opts = BaseOptions(
+            model_asset_path=asset_path,
+            delegate=BaseOptions.Delegate.CPU,
+        )
+        recognizer = vision.GestureRecognizer.create_from_options(
+            vision.GestureRecognizerOptions(
+                base_options=base_opts, **common_kwargs))
+        print('MediaPipe gesture recognizer ready (CPU)')
+    return mp, recognizer
+
+
+def normalize_canned_gesture(categories):
+    """Normalize the public API's winning canned-gesture Category.
+
+    MediaPipe 0.10.18's combined-prediction graph exposes only its winning
+    label, even when the underlying classifier is configured with
+    ``max_results=-1``. Do not fabricate an unavailable full score vector.
+    """
+    candidates = [
+        category for category in (categories or ())
+        if str(getattr(category, 'category_name', '') or '')
+        in GESTURE_OUTPUT_NAMES
+    ]
+    if not candidates:
+        return {
+            'has_gesture': False,
+            'category_name': '',
+            'score': 0.0,
+        }
+    winner = max(candidates, key=lambda category: float(category.score))
+    return {
+        'has_gesture': True,
+        'category_name': str(winner.category_name),
+        'score': float(winner.score),
+    }
+
+
 def load_mono_depth_model(depth_model_name, cpu_only=False):
     import torch
     from transformers.models.auto.modeling_auto import AutoModelForDepthEstimation
@@ -255,7 +410,7 @@ def run_mono_depth(rgb_bgr, torch, processor, depth_model, device, dtype, H, W):
 
 @contextlib.contextmanager
 def _quiet_native_stderr():
-    """Silence MediaPipe's C++ stderr for the duration of one detect call.
+    """Silence MediaPipe's C++ stderr for one landmarker/recognizer call.
 
     With the GPU delegate, MediaPipe 0.10.x logs
         tensor.cc:410] Tensors are designed for single writes...
@@ -268,7 +423,7 @@ def _quiet_native_stderr():
     logs via absl, not glog, so the usual GLOG_minloglevel/GLOG_logtostderr
     env vars have no effect on it (verified -- the spam survives them).
 
-    Scoped to detect_for_video() only, so Python-side logging (ROS loggers,
+    Scoped to the MediaPipe call only, so Python-side logging (ROS loggers,
     tracebacks) is never swallowed. Set HAND_KEYPOINTS_MEDIAPIPE_LOGS=1 to
     disable the suppression and see MediaPipe's native output again.
     """
@@ -287,11 +442,153 @@ def _quiet_native_stderr():
         os.close(saved_fd)
 
 
+def recognize_frame(frame_bgr, hand_det, mp, ts_ms):
+    """Run the configured MediaPipe VIDEO task exactly once for one RGB frame."""
+    mp_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=mp_rgb)
+    with _quiet_native_stderr():
+        if hasattr(hand_det, 'recognize_for_video'):
+            return hand_det.recognize_for_video(mp_img, ts_ms)
+        return hand_det.detect_for_video(mp_img, ts_ms)
+
+
+def world_landmarks_for_hand(result, hand_index):
+    """Return one finite MediaPipe world skeleton as 21x3, else ``None``.
+
+    The Tasks API may omit world landmarks on legacy HandLandmarker results.
+    Keeping this extraction index-safe prevents one malformed hand from
+    shifting the world skeleton attached to another hand in the same frame.
+    """
+    world_hands = getattr(result, 'hand_world_landmarks', None) or []
+    if hand_index < 0 or hand_index >= len(world_hands):
+        return None
+    try:
+        points = np.asarray([
+            (landmark.x, landmark.y, landmark.z)
+            for landmark in world_hands[hand_index]
+        ], dtype=np.float32)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if points.shape != (21, 3) or not np.all(np.isfinite(points)):
+        return None
+    return points
+
+
+def _palm_facing_exception(reason):
+    """Fail one additive facing observation closed without dropping a hand."""
+    return {
+        'has_facing': False,
+        'label': 'UNKNOWN',
+        'palm_up_score': 0.0,
+        'normal_cam': [0.0, 0.0, 0.0],
+        'plane_residual_m': 0.0,
+        'support_height_m': 0.0,
+        'valid_depth_points': 0,
+        'quality_valid': False,
+        'rejection_reason': str(reason),
+        'calibration_version': '',
+    }
+
+
+def _effective_handedness(result_handedness, hand_index,
+                          flip_handedness=False,
+                          forced_handedness_label=''):
+    """Return the handedness policy result for one detected hand.
+
+    A forced label represents an explicit camera-view constraint, not a
+    MediaPipe classification.  Its score is therefore the deterministic
+    policy confidence.  The ROS node exposes the active policy in health and
+    diagnostics so this override is not mistaken for raw model evidence.
+    """
+    forced_label = str(forced_handedness_label or '').strip()
+    if forced_label:
+        if forced_label not in ('Left', 'Right'):
+            raise ValueError(
+                'forced_handedness_label must be empty, Left, or Right')
+        return {'label': forced_label, 'score': 1.0}
+
+    if hand_index >= len(result_handedness) or not result_handedness[hand_index]:
+        return None
+    category = result_handedness[hand_index][0]
+    name = category.category_name
+    if flip_handedness:
+        name = 'Right' if name == 'Left' else 'Left'
+    return {'label': name, 'score': float(category.score)}
+
+
+def gesture_rows_from_result(result, W, H, region=(0.0, 1.0, 0.0, 1.0),
+                             target_px=None, flip_handedness=False,
+                             forced_handedness_label='',
+                             gesture_profile='topview'):
+    """Extract depth-independent gesture rows from one MediaPipe result.
+
+    The returned ``hand_index`` is the frame-local index shared by the same
+    result's landmarks. ROI and optional nearest-target filtering mirror the
+    keypoint path without performing depth lookup or palm-pose computation.
+    """
+    x_min, x_max, y_min, y_max = region
+    hands = result.hand_landmarks or []
+    handedness = result.handedness or []
+    candidates = []
+    for hand_index, landmarks in enumerate(hands):
+        uv = np.array(
+            [(landmark.x * W, landmark.y * H) for landmark in landmarks],
+            dtype=np.float32,
+        )
+        centroid = (float(np.mean(uv[:, 0])), float(np.mean(uv[:, 1])))
+        normalized_x = centroid[0] / W
+        normalized_y = centroid[1] / H
+        if not (
+            x_min <= normalized_x <= x_max
+            and y_min <= normalized_y <= y_max
+        ):
+            continue
+
+        hand_label = _effective_handedness(
+            handedness,
+            hand_index,
+            flip_handedness=flip_handedness,
+            forced_handedness_label=forced_handedness_label,
+        )
+        gesture = classify_topview_gesture(
+            uv,
+            world_landmarks_for_hand(result, hand_index),
+            profile=gesture_profile,
+        )
+        candidates.append({
+            'hand_index': hand_index,
+            'handedness': hand_label,
+            'gesture': gesture,
+            'centroid_px': centroid,
+        })
+
+    if target_px is not None and candidates:
+        target_x, target_y = target_px
+        candidates = [min(
+            candidates,
+            key=lambda candidate: (
+                (candidate['centroid_px'][0] - target_x) ** 2
+                + (candidate['centroid_px'][1] - target_y) ** 2
+            ),
+        )]
+
+    return [
+        {
+            'hand_index': candidate['hand_index'],
+            'handedness': candidate['handedness'],
+            'gesture': candidate['gesture'],
+        }
+        for candidate in candidates
+    ]
+
+
 def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
                    ts_ms, region=(0.0, 1.0, 0.0, 1.0),
                    target_px=None, robot_position_label=None, frame_corner_label=None,
                    flip_handedness=False, draw_overlay=True, depth_source_label='REAL DEPTH',
-                   allow_2d_only=False):
+                   allow_2d_only=False, recognition_result=None,
+                   palm_facing_estimator=None, palm_facing_filter=None,
+                   forced_handedness_label='', gesture_profile='topview'):
     """Run one frame through: MediaPipe detection -> per-keypoint depth
     lookup -> metric backprojection -> optional robot-handoff single-hand
     selection -> palm 6D -> (optional) overlay drawing.
@@ -308,18 +605,25 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
         default behaviour).
     robot_position_label: the raw --robot-position string, only used to
         annotate the overlay text; pass None to omit.
+    recognition_result: optional result already produced by ``recognize_frame``
+        for this exact RGB frame. This lets the ROS node publish an RGB-only
+        gesture topic immediately and later reuse the same result for the
+        synchronized depth/keypoint path without duplicate inference.
 
     Returns (row_hands, overlay_frame, total_valid_kps) — row_hands is a
     list of dicts: hand_index, handedness, joints_3d, joints_2d,
-    kp_scores, kp_valid_depth, palm_6d. Identical shape whether called
-    from the offline CLI or a ROS node.
+    kp_scores, kp_valid_depth, palm_6d, gesture. ``gesture`` is always derived
+    from the returned 21 landmarks by the selected VIPLab landmark profile;
+    the official canned result, when present, is intentionally ignored.
+    ``palm_facing_estimator`` is an optional callable that consumes registered
+    metric joints, depth validity, and handedness. It is deliberately absent
+    from the RGB-only gesture path.
     """
     x_min, x_max, y_min, y_max = region
 
-    mp_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=mp_rgb)
-    with _quiet_native_stderr():
-        result = hand_det.detect_for_video(mp_img, ts_ms)
+    result = recognition_result
+    if result is None:
+        result = recognize_frame(frame_bgr, hand_det, mp, ts_ms)
     hands = result.hand_landmarks or []
     handedness = result.handedness or []
 
@@ -350,12 +654,36 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
         if n_valid < 4 and not allow_2d_only:
             continue
 
-        hd = None
-        if h_i < len(handedness) and handedness[h_i]:
-            name = handedness[h_i][0].category_name
-            if flip_handedness:
-                name = 'Right' if name == 'Left' else 'Left'
-            hd = {'label': name, 'score': float(handedness[h_i][0].score)}
+        hd = _effective_handedness(
+            handedness,
+            h_i,
+            flip_handedness=flip_handedness,
+            forced_handedness_label=forced_handedness_label,
+        )
+
+        gesture = classify_topview_gesture(
+            uv,
+            world_landmarks_for_hand(result, h_i),
+            profile=gesture_profile,
+        )
+
+        palm_facing = None
+        if palm_facing_estimator is not None:
+            try:
+                palm_facing = palm_facing_estimator(joints_3d, valid, hd)
+            except Exception as exc:  # additive feature must not drop keypoints
+                palm_facing = _palm_facing_exception(
+                    f'estimator_exception:{type(exc).__name__}')
+            if palm_facing_filter is not None:
+                try:
+                    palm_facing = palm_facing_filter(
+                        palm_facing,
+                        centroid_norm=(cu, cv_),
+                        handedness=hd,
+                    )
+                except Exception as exc:  # preserve established outputs
+                    palm_facing = _palm_facing_exception(
+                        f'temporal_filter_exception:{type(exc).__name__}')
 
         palm_pose = None
         gizmo = None
@@ -370,7 +698,9 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
 
         candidates.append({
             'h_i': h_i, 'uv': uv, 'valid': valid, 'joints_3d': joints_3d,
-            'hd': hd, 'palm_pose': palm_pose, 'gizmo': gizmo,
+            'hd': hd, 'gesture': gesture,
+            'palm_facing': palm_facing,
+            'palm_pose': palm_pose, 'gizmo': gizmo,
             'centroid_px': (cu * W, cv_ * H),
         })
 
@@ -387,7 +717,8 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
     row_hands = []
     for c in candidates:
         uv, valid, joints_3d = c['uv'], c['valid'], c['joints_3d']
-        hd, palm_pose = c['hd'], c['palm_pose']
+        hd, gesture, palm_facing, palm_pose = (
+            c['hd'], c['gesture'], c['palm_facing'], c['palm_pose'])
 
         if draw_overlay:
             if c['gizmo'] is not None:
@@ -402,6 +733,34 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
                             0.55, (0, 0, 0), 4, cv2.LINE_AA)
                 cv2.putText(overlay, lbl, (wu - 30, wv + 25), cv2.FONT_HERSHEY_SIMPLEX,
                             0.55, (0, 255, 255), 1, cv2.LINE_AA)
+            if gesture is not None and gesture['has_gesture']:
+                gesture_label = (
+                    f'{gesture["category_name"]} {gesture["score"]:.2f}')
+                wu, wv = int(uv[0][0]), int(uv[0][1])
+                cv2.putText(
+                    overlay, gesture_label, (wu - 30, wv + 48),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (0, 0, 0), 4, cv2.LINE_AA)
+                cv2.putText(
+                    overlay, gesture_label, (wu - 30, wv + 48),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (255, 200, 0), 1, cv2.LINE_AA)
+            if palm_facing is not None:
+                facing_label = (
+                    f'{palm_facing["label"]} '
+                    f'{float(palm_facing["palm_up_score"]):+.2f}'
+                    if palm_facing.get('has_facing', False)
+                    else 'PALM_UNKNOWN'
+                )
+                wu, wv = int(uv[0][0]), int(uv[0][1])
+                cv2.putText(
+                    overlay, facing_label, (wu - 30, wv + 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (0, 0, 0), 4, cv2.LINE_AA)
+                cv2.putText(
+                    overlay, facing_label, (wu - 30, wv + 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (80, 255, 180), 1, cv2.LINE_AA)
 
         row_hands.append({
             'hand_index': c['h_i'],
@@ -411,6 +770,8 @@ def process_frame(frame_bgr, depth_map_m, hand_det, mp, K, fx, fy, cx, cy, W, H,
             'kp_scores': [1.0] * 21,
             'kp_valid_depth': valid.tolist(),
             'palm_6d': palm_pose,
+            'palm_facing': palm_facing,
+            'gesture': gesture,
         })
 
     if draw_overlay:
