@@ -36,7 +36,7 @@
     workspace_zone: "tray"
 
     confidence_threshold: 0.3
-    adson_forceps_confidence_threshold: 0.25
+    adson_forceps_confidence_threshold: 0.3
     enable_class_agnostic_nms: false
     class_agnostic_nms_iou: 0.8
 
@@ -65,6 +65,10 @@
     temporal_association_maximum_centroid_distance_norm: 0.06
     temporal_association_maximum_mask_area_ratio: 3.0
     temporal_track_max_missed_frames: 3
+    # Test mode: use the previous per-class endpoint sign policy.
+    positive_y_image_direction: "class_based"
+    # CAM3-only: identify merged face-on Adson jaws by terminal width ratio.
+    adson_face_on_width_enabled: true
     pose_axis_length_m: 0.05
     optimize_for_inference: true
     jit_compile: true

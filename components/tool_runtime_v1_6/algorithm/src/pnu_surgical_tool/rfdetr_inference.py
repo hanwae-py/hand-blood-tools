@@ -17,6 +17,7 @@ from .trt_batch import BatchInferenceClient
 
 ModelSize = Literal["small", "medium", "large", "xlarge"]
 ColorOrder = Literal["RGB", "BGR"]
+SAME_CLASS_MASK_CONTAINMENT_THRESHOLD = 0.95
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,11 @@ class SurgicalToolDetector:
         payload = json.loads(Path(config.ontology_path).read_text(encoding="utf-8"))
         classes = payload["canonical_tool_classes"]
         self._classes = sorted(classes, key=lambda item: int(item["canonical_id"]))
+        self._bipolar_model_indices = {
+            index
+            for index, item in enumerate(self._classes)
+            if str(item["canonical_name"]) == "Bipolar Forceps"
+        }
         self.ontology_version = str(payload.get("schema", "unknown"))
         if [int(item["canonical_id"]) for item in self._classes] != list(range(1, 9)):
             raise ValueError("Expected frozen canonical IDs 1..8")
@@ -248,6 +254,32 @@ class SurgicalToolDetector:
             and self.config.class_agnostic_nms_iou is not None
             else np.arange(len(boxes), dtype=int)
         )
+        normalized_masks: dict[int, np.ndarray] = {}
+
+        def normalized_mask(index: int) -> np.ndarray:
+            cached = normalized_masks.get(index)
+            if cached is not None:
+                return cached
+            value = np.asarray(masks[index], dtype=bool)
+            if value.shape != (height, width):
+                value = cv2.resize(
+                    value.astype(np.uint8),
+                    (width, height),
+                    interpolation=cv2.INTER_NEAREST,
+                ).astype(bool)
+            normalized_masks[index] = value
+            return value
+
+        if self.enable_class_agnostic_nms and len(keep_indices) > 1:
+            containment_keep = same_class_mask_containment_indices(
+                [normalized_mask(int(index)) for index in keep_indices],
+                model_indices[keep_indices],
+                confidences[keep_indices],
+                SAME_CLASS_MASK_CONTAINMENT_THRESHOLD,
+                boxes_xyxy=boxes[keep_indices],
+                prefer_larger_bbox_class_ids=self._bipolar_model_indices,
+            )
+            keep_indices = keep_indices[containment_keep]
         instances: list[DetectionInstance] = []
         for frame_local_id, index in enumerate(keep_indices):
             box = boxes[index]
@@ -255,13 +287,7 @@ class SurgicalToolDetector:
             confidence = confidences[index]
             if model_index < 0 or model_index >= len(self._classes):
                 raise RuntimeError(f"Unexpected model class index: {model_index}")
-            mask = np.asarray(masks[index], dtype=bool)
-            if mask.shape != (height, width):
-                mask = cv2.resize(
-                    mask.astype(np.uint8),
-                    (width, height),
-                    interpolation=cv2.INTER_NEAREST,
-                ).astype(bool)
+            mask = normalized_mask(int(index))
             class_record = self._classes[model_index]
             instances.append(
                 DetectionInstance(
@@ -331,4 +357,80 @@ def class_agnostic_nms_indices(
             where=unions > 0,
         )
         order = remaining[ious <= iou_threshold]
+    return np.asarray(keep, dtype=int)
+
+
+def same_class_mask_containment_indices(
+    masks: list[np.ndarray],
+    class_ids: np.ndarray,
+    confidences: np.ndarray,
+    containment_threshold: float = SAME_CLASS_MASK_CONTAINMENT_THRESHOLD,
+    *,
+    boxes_xyxy: np.ndarray | None = None,
+    prefer_larger_bbox_class_ids: set[int] | None = None,
+) -> np.ndarray:
+    """Suppress a lower-confidence same-class mask contained by a kept mask.
+
+    Bbox IoU can be low when one prediction covers the complete tool and a
+    second prediction covers only its handle or shaft.  Mask containment
+    catches that duplicate without lowering the global bbox-NMS threshold,
+    which could suppress nearby but distinct instruments.  Selected classes
+    may rank contained candidates by bbox area before confidence; Bipolar uses
+    this path so the prediction representing the complete tool is retained.
+    """
+    ids = np.asarray(class_ids, dtype=int).reshape(-1)
+    scores = np.asarray(confidences, dtype=np.float64).reshape(-1)
+    if len(masks) != len(ids) or len(masks) != len(scores):
+        raise ValueError("masks, class_ids, and confidences must have equal length")
+    if not 0.0 <= containment_threshold <= 1.0:
+        raise ValueError("containment_threshold must be in [0, 1]")
+    if not masks:
+        return np.empty(0, dtype=int)
+    shapes = {np.asarray(mask).shape for mask in masks}
+    if len(shapes) != 1:
+        raise ValueError("all masks must have the same shape")
+
+    boolean_masks = [np.asarray(mask, dtype=bool) for mask in masks]
+    areas = np.asarray(
+        [int(np.count_nonzero(mask)) for mask in boolean_masks],
+        dtype=np.int64,
+    )
+    preferred_classes = prefer_larger_bbox_class_ids or set()
+    if boxes_xyxy is None:
+        bbox_areas = np.zeros(len(masks), dtype=np.float64)
+    else:
+        boxes = np.asarray(boxes_xyxy, dtype=np.float64)
+        if boxes.shape != (len(masks), 4):
+            raise ValueError("boxes_xyxy must be Nx4 matching masks")
+        bbox_areas = np.maximum(0.0, boxes[:, 2] - boxes[:, 0]) * np.maximum(
+            0.0,
+            boxes[:, 3] - boxes[:, 1],
+        )
+    order = sorted(
+        range(len(masks)),
+        key=lambda index: (
+            (-bbox_areas[index], -scores[index], index)
+            if ids[index] in preferred_classes
+            else (-scores[index], -bbox_areas[index], index)
+        ),
+    )
+    keep: list[int] = []
+    for value in order:
+        current = int(value)
+        duplicate = False
+        for retained in keep:
+            if ids[current] != ids[retained]:
+                continue
+            smaller_area = min(int(areas[current]), int(areas[retained]))
+            if smaller_area <= 0:
+                continue
+            intersection = int(
+                np.count_nonzero(boolean_masks[current] & boolean_masks[retained])
+            )
+            containment = intersection / smaller_area
+            if containment >= containment_threshold:
+                duplicate = True
+                break
+        if not duplicate:
+            keep.append(current)
     return np.asarray(keep, dtype=int)

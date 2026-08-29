@@ -599,6 +599,8 @@ class NativeDepthPoseNode(Node):
             'temporal_association_maximum_mask_area_ratio', 3.0
         )
         self.declare_parameter('temporal_track_max_missed_frames', 3)
+        self.declare_parameter('positive_y_image_direction', 'class_based')
+        self.declare_parameter('adson_face_on_width_enabled', False)
         self.declare_parameter('pose_axis_length_m', 0.05)
         self.declare_parameter('optimize_for_inference', True)
         self.declare_parameter('jit_compile', True)
@@ -835,6 +837,20 @@ class NativeDepthPoseNode(Node):
         self._temporal_track_max_missed_frames = int(
             value('temporal_track_max_missed_frames')
         )
+        self._positive_y_image_direction = str(
+            value('positive_y_image_direction')
+        ).strip().lower()
+        self._adson_face_on_width_enabled = bool(
+            value('adson_face_on_width_enabled')
+        )
+        if self._positive_y_image_direction not in (
+            'class_based',
+            'down',
+            'right',
+        ):
+            raise ValueError(
+                'positive_y_image_direction must be class_based, down, or right'
+            )
         self._pose_axis_length_m = float(value('pose_axis_length_m'))
         if not 0.0 <= self._class_agnostic_nms_iou <= 1.0:
             raise ValueError('class_agnostic_nms_iou must be in [0, 1]')
@@ -1190,6 +1206,7 @@ class NativeDepthPoseNode(Node):
             DetectionPostprocessor,
             DetectionPostprocessorConfig,
             DetectorConfig,
+            PlanarPoseConfig,
             PlanarPoseEstimator,
             RigidTransform,
             SupportPlane,
@@ -1270,7 +1287,16 @@ class NativeDepthPoseNode(Node):
         )
         self._algorithm = SurgicalToolAlgorithm(
             detector,
-            PlanarPoseEstimator(),
+            PlanarPoseEstimator(
+                PlanarPoseConfig(
+                    positive_y_image_direction=(
+                        self._positive_y_image_direction
+                    ),
+                    adson_face_on_width_enabled=(
+                        self._adson_face_on_width_enabled
+                    ),
+                )
+            ),
             postprocessor=self._detection_postprocessor,
         )
         self._support_plane = SupportPlane(
@@ -1695,6 +1721,7 @@ class NativeDepthPoseNode(Node):
                         pose_camera,
                         self._support_plane,
                         frame_key=f'{self._view}:{sequence}',
+                        image_bgr=rgb,
                     )
                     inference_pose_ms = (
                         time.perf_counter() - pose_started

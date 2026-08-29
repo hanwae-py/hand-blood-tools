@@ -21,6 +21,7 @@ from .detection_postprocessing import (
     WorkspaceRoiConfig,
 )
 from .planar_pose import (
+    PlanarPoseConfig,
     PlanarPoseEstimator,
     longitudinal_origin_uv,
     sample_depth_at_uv,
@@ -49,6 +50,7 @@ __all__ = [
     "DepthToColorRegistrar",
     "finite_vector_or_none",
     "PlanarPoseEstimator",
+    "PlanarPoseConfig",
     "longitudinal_origin_uv",
     "metric_depth_in_rgb_frame",
     "registrar_from_camera_fields",

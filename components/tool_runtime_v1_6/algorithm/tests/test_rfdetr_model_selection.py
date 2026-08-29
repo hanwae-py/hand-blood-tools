@@ -107,6 +107,69 @@ def test_detector_config_defaults_to_xlarge():
     assert config.model_size == "xlarge"
 
 
+def test_bipolar_containment_prefers_larger_bbox_over_confidence():
+    from pnu_surgical_tool.rfdetr_inference import (
+        same_class_mask_containment_indices,
+    )
+
+    complete = np.zeros((12, 8), dtype=bool)
+    complete[1:11, 1:7] = True
+    partial = np.zeros_like(complete)
+    partial[3:9, 2:6] = True
+
+    keep = same_class_mask_containment_indices(
+        [complete, partial],
+        np.asarray([4, 4]),
+        np.asarray([0.45, 0.90]),
+        boxes_xyxy=np.asarray([[0, 0, 8, 12], [2, 3, 6, 9]], dtype=float),
+        prefer_larger_bbox_class_ids={4},
+    )
+
+    assert keep.tolist() == [0]
+
+
+def test_non_bipolar_containment_still_prefers_confidence():
+    from pnu_surgical_tool.rfdetr_inference import (
+        same_class_mask_containment_indices,
+    )
+
+    complete = np.zeros((12, 8), dtype=bool)
+    complete[1:11, 1:7] = True
+    partial = np.zeros_like(complete)
+    partial[3:9, 2:6] = True
+
+    keep = same_class_mask_containment_indices(
+        [complete, partial],
+        np.asarray([3, 3]),
+        np.asarray([0.45, 0.90]),
+        boxes_xyxy=np.asarray([[0, 0, 8, 12], [2, 3, 6, 9]], dtype=float),
+        prefer_larger_bbox_class_ids={4},
+    )
+
+    assert keep.tolist() == [1]
+
+
+def test_containment_keeps_different_classes_and_crossing_instances():
+    from pnu_surgical_tool.rfdetr_inference import (
+        same_class_mask_containment_indices,
+    )
+
+    horizontal = np.zeros((12, 12), dtype=bool)
+    horizontal[4:8, 1:11] = True
+    vertical = np.zeros_like(horizontal)
+    vertical[1:11, 4:8] = True
+    contained_other_class = np.zeros_like(horizontal)
+    contained_other_class[5:7, 3:9] = True
+
+    keep = same_class_mask_containment_indices(
+        [horizontal, vertical, contained_other_class],
+        np.asarray([4, 4, 5]),
+        np.asarray([0.9, 0.8, 0.7]),
+    )
+
+    assert keep.tolist() == [0, 1, 2]
+
+
 def test_rejects_unknown_model_size(tmp_path):
     from pnu_surgical_tool import DetectorConfig, SurgicalToolDetector
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import cv2
 import numpy as np
 
 from .depth_registration import DepthRegistrationResult, DepthToColorRegistrar
@@ -48,12 +49,18 @@ class SurgicalToolAlgorithm:
         confidence_threshold: float | None = None,
     ) -> ToolFrameResult:
         detections = self.detect(image, color_order, confidence_threshold)
+        image_bgr = (
+            image
+            if color_order == "BGR"
+            else cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        )
         return self.pose_estimator.estimate(
             detections,
             aligned_depth_m,
             camera,
             support_plane,
             frame_key=frame_key,
+            image_bgr=image_bgr,
         )
 
     def detect_and_estimate_from_native_depth(

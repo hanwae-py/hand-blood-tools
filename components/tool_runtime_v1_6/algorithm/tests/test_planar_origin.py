@@ -14,6 +14,7 @@ from pnu_surgical_tool.depth_registration import (
 from pnu_surgical_tool.planar_pose import (
     _pca_endpoints,
     _sign_policy,
+    PlanarPoseConfig,
     PlanarPoseEstimator,
     longitudinal_origin_uv,
     sample_depth_at_uv,
@@ -76,6 +77,47 @@ _ADSON_CASE_FIXTURES = {
 }
 
 
+_ADSON_SINGLE_TIP_FIXTURE = {
+    "contour": [
+        [8, 24], [32, 15], [132, 11], [140, 14],
+        [140, 34], [132, 37], [32, 33],
+    ],
+    "tip_uv": [8, 24],
+    "handle_uv": [140, 24],
+}
+
+
+def _adson_two_prong_mask() -> np.ndarray:
+    mask = np.zeros((52, 156), dtype=np.uint8)
+    mask[13:39, 10:108] = 1
+    mask[13:20, 100:146] = 1
+    mask[32:39, 100:146] = 1
+    return mask
+
+
+def _adson_merged_two_tip_mask() -> np.ndarray:
+    contour = np.array(
+        [
+            [10, 21], [104, 18], [145, 12],
+            [145, 38], [104, 32], [10, 29],
+        ],
+        dtype=np.int32,
+    )
+    mask = np.zeros((52, 156), dtype=np.uint8)
+    __import__("cv2").fillPoly(mask, [contour], 1)
+    return mask
+
+
+_BOVIE_TAPER_FIXTURE = {
+    "contour": [
+        [0, 15], [24, 7], [100, 7], [112, 9],
+        [112, 21], [100, 23], [24, 23],
+    ],
+    "tip_uv": [0, 15],
+    "handle_uv": [112, 15],
+}
+
+
 def _rotate_uv_90_ccw(uv: np.ndarray, old_width: int) -> np.ndarray:
     return np.array((uv[1], old_width - 1 - uv[0]), dtype=np.float64)
 
@@ -116,9 +158,112 @@ def test_bipolar_working_endpoint_points_to_tip_for_case_shapes(
     assert endpoints["sign_confidence"] >= 0.2
 
 
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_bipolar_black_endpoint_has_handle_priority(quarter_turns: int) -> None:
+    mask = np.zeros((52, 144), dtype=np.uint8)
+    mask[10:42, 10:134] = 1
+    image = np.full((*mask.shape, 3), 180, dtype=np.uint8)
+    image[mask.astype(bool)] = (170, 170, 170)
+    image[10:42, 10:46] = (20, 20, 20)
+    dark_handle_uv = np.array((10.0, 25.5))
+    working_tip_uv = np.array((133.0, 25.5))
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask).copy()
+        image = np.rot90(image).copy()
+        dark_handle_uv = _rotate_uv_90_ccw(dark_handle_uv, old_width)
+        working_tip_uv = _rotate_uv_90_ccw(working_tip_uv, old_width)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    assert endpoints["sign_source"] == "bipolar_dark_handle"
+    assert np.linalg.norm(endpoints["handle_uv"] - dark_handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - dark_handle_uv
+    )
+    assert np.linalg.norm(endpoints["working_uv"] - working_tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - working_tip_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.6
+
+
+def test_bipolar_nonblack_endpoint_falls_back_to_taper() -> None:
+    mask = _rectangle_mask()
+    image = np.full((*mask.shape, 3), 170, dtype=np.uint8)
+    image[10:30, 20:35] = (100, 100, 100)
+
+    endpoints = _pca_endpoints(
+        mask,
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    assert endpoints["sign_source"] == "bipolar_taper_fallback"
+    assert endpoints["sign_confidence"] == pytest.approx(0.0)
+
+
+def test_bipolar_external_wire_is_ignored_without_black_handle() -> None:
+    mask = np.zeros((100, 200), dtype=np.uint8)
+    mask[40:61, 60:121] = 1
+    image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
+    image[mask.astype(bool)] = (150, 190, 215)
+    cv2 = __import__("cv2")
+    cv2.polylines(
+        image,
+        [np.array([[120, 50], [140, 53], [158, 66], [188, 63]], np.int32)],
+        False,
+        (235, 235, 235),
+        4,
+        cv2.LINE_AA,
+    )
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    assert endpoints["sign_source"] == "bipolar_taper_fallback"
+    assert endpoints["sign_confidence"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_adson_single_tip_taper_points_to_working_tip(quarter_turns: int) -> None:
+    fixture = _ADSON_SINGLE_TIP_FIXTURE
+    contour = np.asarray(fixture["contour"], dtype=np.int32)
+    height = int(contour[:, 1].max()) + 1
+    width = int(contour[:, 0].max()) + 1
+    mask = np.zeros((height, width), dtype=np.uint8)
+    __import__("cv2").fillPoly(mask, [contour], 1)
+    tip_uv = np.asarray(fixture["tip_uv"], dtype=np.float64)
+    handle_uv = np.asarray(fixture["handle_uv"], dtype=np.float64)
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask)
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+
+    assert _sign_policy("Adson Forceps") == "smaller_end_is_handle"
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        "adson_shape",
+    )
+    assert endpoints["sign_source"] == "adson_tip_taper"
+    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - tip_uv
+    )
+    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.2
+
+
 @pytest.mark.parametrize("fixture_name", _ADSON_CASE_FIXTURES)
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_adson_uses_legacy_smaller_end_handle_policy(
+def test_adson_recorded_contours_keep_working_tip_direction(
     fixture_name: str,
     quarter_turns: int,
 ) -> None:
@@ -128,24 +273,251 @@ def test_adson_uses_legacy_smaller_end_handle_policy(
     width = int(contour[:, 0].max()) + 1
     mask = np.zeros((height, width), dtype=np.uint8)
     __import__("cv2").fillPoly(mask, [contour], 1)
+    tip_uv = np.asarray(fixture["tip_uv"], dtype=np.float64)
+    handle_uv = np.asarray(fixture["handle_uv"], dtype=np.float64)
     for _ in range(quarter_turns):
+        old_width = mask.shape[1]
         mask = np.rot90(mask)
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
 
-    assert _sign_policy("Adson Forceps") == "smaller_end_is_handle"
-    actual = _pca_endpoints(
+    endpoints = _pca_endpoints(
         mask.astype(bool),
-        _sign_policy("Adson Forceps"),
+        "adson_shape",
     )
-    legacy = _pca_endpoints(
+
+    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - tip_uv
+    )
+    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.2
+
+
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_adson_two_prong_endpoint_has_priority(quarter_turns: int) -> None:
+    mask = _adson_two_prong_mask()
+    tip_uv = np.array((145.0, 25.5))
+    handle_uv = np.array((10.0, 25.5))
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask).copy()
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+
+    endpoints = _pca_endpoints(
         mask.astype(bool),
-        "smaller_end_is_handle",
+        "adson_shape",
     )
-    np.testing.assert_allclose(actual["working_uv"], legacy["working_uv"])
-    np.testing.assert_allclose(actual["handle_uv"], legacy["handle_uv"])
-    np.testing.assert_allclose(actual["axis_uv"], legacy["axis_uv"])
-    assert actual["sign_confidence"] == pytest.approx(
-        legacy["sign_confidence"]
+
+    assert endpoints["sign_source"] == "adson_two_prong_tip"
+    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - tip_uv
     )
+    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.35
+
+
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_adson_width_recovers_merged_face_on_tip(
+    quarter_turns: int,
+) -> None:
+    mask = _adson_merged_two_tip_mask()
+    tip_uv = np.array((145.0, 25.0))
+    handle_uv = np.array((10.0, 25.0))
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask).copy()
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        "adson_face_on_shape",
+    )
+
+    assert endpoints["sign_source"] == "adson_two_tip_width"
+    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - tip_uv
+    )
+    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.3
+
+
+def test_adson_face_on_width_rule_is_opt_in() -> None:
+    default = PlanarPoseEstimator()
+    cam3 = PlanarPoseEstimator(
+        PlanarPoseConfig(adson_face_on_width_enabled=True)
+    )
+
+    assert default._endpoint_sign_policy("Adson Forceps") == "smaller_end_is_handle"
+    assert cam3._endpoint_sign_policy("Adson Forceps") == "adson_face_on_shape"
+    assert cam3._endpoint_sign_policy("Bovie") == "bovie_tip_taper"
+
+
+def test_adson_ambiguous_rectangle_is_marked_as_fallback() -> None:
+    endpoints = _pca_endpoints(
+        _rectangle_mask(),
+        "adson_shape",
+    )
+
+    assert endpoints["sign_source"] == "adson_shape_fallback"
+    assert endpoints["sign_confidence"] == pytest.approx(0.0)
+
+
+def test_camera_rule_changes_only_pca_axis_sign() -> None:
+    mask = np.zeros((64, 96), dtype=np.uint8)
+    __import__("cv2").line(mask, (12, 54), (84, 10), 9, 1)
+
+    class_based = _pca_endpoints(mask.astype(bool), "larger_end_is_handle")
+    cam3 = _pca_endpoints(mask.astype(bool), "positive_y_image_down")
+    cam4 = _pca_endpoints(mask.astype(bool), "positive_y_image_right")
+
+    cam3_positive_y = cam3["working_uv"] - cam3["handle_uv"]
+    cam4_positive_y = cam4["working_uv"] - cam4["handle_uv"]
+    assert cam3_positive_y[1] > 0.0
+    assert cam4_positive_y[0] > 0.0
+    np.testing.assert_allclose(
+        abs(float(cam3["axis_uv"] @ class_based["axis_uv"])),
+        1.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        abs(float(cam4["axis_uv"] @ class_based["axis_uv"])),
+        1.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(cam3["axis_uv"], -cam4["axis_uv"], atol=1e-12)
+    assert cam3["sign_confidence"] == pytest.approx(1.0)
+    assert cam4["sign_confidence"] == pytest.approx(1.0)
+
+
+def test_positive_y_image_direction_is_validated() -> None:
+    with pytest.raises(ValueError, match="positive_y_image_direction"):
+        PlanarPoseConfig(positive_y_image_direction="left")
+
+
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_bovie_tapered_endpoint_is_working_tip(quarter_turns: int) -> None:
+    fixture = _BOVIE_TAPER_FIXTURE
+    contour = np.asarray(fixture["contour"], dtype=np.int32)
+    height = int(contour[:, 1].max()) + 1
+    width = int(contour[:, 0].max()) + 1
+    mask = np.zeros((height, width), dtype=np.uint8)
+    __import__("cv2").fillPoly(mask, [contour], 1)
+    tip_uv = np.asarray(fixture["tip_uv"], dtype=np.float64)
+    handle_uv = np.asarray(fixture["handle_uv"], dtype=np.float64)
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask)
+        tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+
+    assert _sign_policy("Bovie") == "bovie_tip_taper"
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bovie"),
+    )
+    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - tip_uv
+    )
+    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["working_uv"] - handle_uv
+    )
+    assert endpoints["sign_confidence"] >= 0.2
+
+
+@pytest.mark.parametrize("class_name", ["Bovie", "Bipolar Forceps"])
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_bovie_wire_and_bipolar_black_handle_priorities(
+    class_name: str,
+    quarter_turns: int,
+) -> None:
+    mask = np.zeros((100, 200), dtype=np.uint8)
+    mask[40:61, 60:121] = 1
+    image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
+    image[mask.astype(bool)] = (150, 190, 215)
+    cv2 = __import__("cv2")
+    cv2.polylines(
+        image,
+        [np.array([[120, 50], [140, 53], [158, 66], [188, 63]], np.int32)],
+        False,
+        (235, 235, 235),
+        4,
+        cv2.LINE_AA,
+    )
+    # The cues intentionally conflict: Bovie follows its external wire, while
+    # Bipolar must treat its black endpoint as the handle before considering
+    # the wire.
+    image[40:61, 60:74] = (15, 15, 15)
+    handle_uv = np.array((120.0, 50.0))
+    working_tip_uv = np.array((60.0, 50.0))
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask).copy()
+        image = np.rot90(image).copy()
+        handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
+        working_tip_uv = _rotate_uv_90_ccw(working_tip_uv, old_width)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy(class_name),
+        image_bgr=image,
+    )
+
+    expected_handle_uv = (
+        handle_uv if class_name == "Bovie" else working_tip_uv
+    )
+    expected_tip_uv = working_tip_uv if class_name == "Bovie" else handle_uv
+    assert endpoints["sign_source"] == (
+        "bovie_external_wire_handle"
+        if class_name == "Bovie"
+        else "bipolar_dark_handle"
+    )
+    assert np.linalg.norm(
+        endpoints["handle_uv"] - expected_handle_uv
+    ) < np.linalg.norm(endpoints["working_uv"] - expected_handle_uv)
+    assert np.linalg.norm(
+        endpoints["working_uv"] - expected_tip_uv
+    ) < np.linalg.norm(endpoints["handle_uv"] - expected_tip_uv)
+    assert endpoints["sign_confidence"] >= 0.6
+
+
+def test_thin_bovie_electrode_is_not_mistaken_for_wire() -> None:
+    mask = np.zeros((100, 200), dtype=np.uint8)
+    mask[40:61, 60:121] = 1
+    image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
+    image[mask.astype(bool)] = (150, 190, 215)
+    __import__("cv2").line(image, (120, 50), (188, 50), (235, 235, 235), 1)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bovie"),
+        image_bgr=image,
+    )
+
+    assert endpoints["sign_source"] == "bovie_tip_taper"
+
+
+def test_broad_external_clutter_is_not_mistaken_for_wire() -> None:
+    mask = np.zeros((100, 200), dtype=np.uint8)
+    mask[40:61, 60:121] = 1
+    image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
+    image[mask.astype(bool)] = (150, 190, 215)
+    __import__("cv2").rectangle(image, (119, 30), (185, 75), (235, 235, 235), -1)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bovie"),
+        image_bgr=image,
+    )
+
+    assert endpoints["sign_source"] == "bovie_tip_taper"
 
 
 @pytest.mark.parametrize(
