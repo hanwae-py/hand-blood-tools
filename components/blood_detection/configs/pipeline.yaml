@@ -1,0 +1,11 @@
+redetect_interval: 1
+score_thr: 0.5
+min_area: 400
+max_internal_size: 480
+fusion:
+  iou_agree: 0.5
+  iou_disagree: 0.2
+  min_new_area: 400
+  min_det_area: 200
+  min_conf: 0.4
+  persist_disagree: 3

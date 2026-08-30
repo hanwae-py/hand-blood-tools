@@ -45,8 +45,15 @@ set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${COORD}/install/setup.bash"
 set -u
-export PYTHONPATH="${ROOT}/components/tool_runtime_v1_6/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
-exec "${RFDETR_PYTHON}" -m surgical_task_coordinator.blood_detection_node \
+BLOOD_ROOT="${ROOT}/components/blood_detection"
+BLOOD_CHECKPOINT="${BLOOD_CHECKPOINT:-${BLOOD_ROOT}/pretrained/blood_detection_full_all.pth}"
+BLOOD_CUTIE_CHECKPOINT="${BLOOD_CUTIE_CHECKPOINT:-${BLOOD_ROOT}/pretrained/cutie_blood_full_all.pth}"
+if [[ -z "${BLOOD_PYTHON:-}" ]]; then
+  echo "BLOOD_PYTHON is not configured. Set it in config/system.env (not RFDETR_PYTHON)." >&2
+  exit 1
+fi
+export PYTHONPATH="${BLOOD_ROOT}:${ROOT}/components/tool_runtime_v1_6/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
+exec "${BLOOD_PYTHON}" -m surgical_task_coordinator.blood_detection_node \
   --ros-args -r "__node:=${NODE_NAME}" \
   "${PARAM_FILE_ARGS[@]}" \
   -p color_topic:="${COLOR_TOPIC}" \
@@ -54,7 +61,9 @@ exec "${RFDETR_PYTHON}" -m surgical_task_coordinator.blood_detection_node \
   -p color_camera_info_topic:="${COLOR_CAMERA_INFO_TOPIC}" \
   -p depth_camera_info_topic:="${DEPTH_CAMERA_INFO_TOPIC}" \
   -p checkpoint:="${BLOOD_CHECKPOINT}" \
-  -p confidence_threshold:=0.5 -p optimize:=true \
+  -p cutie_checkpoint:="${BLOOD_CUTIE_CHECKPOINT}" \
+  -p confidence_threshold:=0.5 \
+  -p redetect_interval:=1 \
   -p require_depth:=false \
   "${CAM_OVERRIDES[@]}" \
   "$@"

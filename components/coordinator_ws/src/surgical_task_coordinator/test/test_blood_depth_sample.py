@@ -112,13 +112,26 @@ def test_vectorized_coco_rle_is_column_major_and_preserves_leading_one_run():
     assert encoded['counts'] == [0, 2, 1, 2, 1]
 
 
+def _empty_frame_output(image):
+    height, width = image.shape[:2]
+    return SimpleNamespace(
+        mask=np.zeros((height, width), dtype=bool),
+        centroids=[],
+        action='wait_detection',
+        ran_detector=True,
+        detector_ms=1.0,
+        tracker_ms=0.0,
+        total_ms=1.0,
+    )
+
+
 def test_dark_flir_frame_is_unknown_without_model_or_mask_call():
-    class Model:
+    class Pipeline:
         calls = 0
 
-        def predict(self, *_args, **_kwargs):
+        def step(self, *_args, **_kwargs):
             self.calls += 1
-            raise AssertionError('dark input must not reach RF-DETR')
+            raise AssertionError('dark input must not reach BloodPipeline')
 
     rclpy.init()
     node = BloodDetectionNode()
@@ -128,13 +141,13 @@ def test_dark_flir_frame_is_unknown_without_model_or_mask_call():
             Parameter('camera', Parameter.Type.STRING, 'flir'),
         ])
         node._active = True
-        node._model = Model()
+        node._pipeline = Pipeline()
         node._mask_pub = _Publisher()
         node._overlay_pub = _Publisher()
         node._semantics_pub = _Publisher()
         node._on_color(_jpeg(3))
         _drain_until(node, lambda: bool(node._semantics_pub.messages))
-        assert node._model.calls == 0
+        assert node._pipeline.calls == 0
         assert node._mask_pub.messages == []
         assert len(node._overlay_pub.messages) == 1
         payload = json.loads(node._semantics_pub.messages[0].data)
@@ -158,18 +171,12 @@ def test_bright_flir_frame_runs_model_and_publishes_valid_empty_mask():
     class Torch:
         cuda = Cuda()
 
-    class Model:
+    class Pipeline:
         calls = 0
 
-        def predict(self, image, **_kwargs):
+        def step(self, image, **_kwargs):
             self.calls += 1
-            height, width = image.shape[:2]
-            return SimpleNamespace(
-                mask=np.zeros((0, height, width), dtype=bool),
-                xyxy=np.empty((0, 4), dtype=np.float32),
-                class_id=np.empty((0,), dtype=np.int32),
-                confidence=np.empty((0,), dtype=np.float32),
-            )
+            return _empty_frame_output(image)
 
     gradient = np.tile(
         np.linspace(0, 220, 120, dtype=np.uint8), (80, 1))
@@ -182,14 +189,14 @@ def test_bright_flir_frame_runs_model_and_publishes_valid_empty_mask():
             Parameter('camera', Parameter.Type.STRING, 'flir'),
         ])
         node._active = True
-        node._model = Model()
+        node._pipeline = Pipeline()
         node._torch = Torch()
         node._mask_pub = _Publisher()
         node._overlay_pub = _Publisher()
         node._semantics_pub = _Publisher()
         node._on_color(_jpeg(bright))
         _drain_until(node, lambda: bool(node._semantics_pub.messages))
-        assert node._model.calls == 1
+        assert node._pipeline.calls == 1
         assert len(node._mask_pub.messages) == 1
         payload = json.loads(node._semantics_pub.messages[0].data)
         assert payload['observation_valid'] is True
@@ -209,21 +216,15 @@ def test_rgb_only_mode_never_touches_depth_path():
     class Torch:
         cuda = Cuda()
 
-    class Model:
-        def predict(self, image, **_kwargs):
-            height, width = image.shape[:2]
-            return SimpleNamespace(
-                mask=np.zeros((0, height, width), dtype=bool),
-                xyxy=np.empty((0, 4), dtype=np.float32),
-                class_id=np.empty((0,), dtype=np.int32),
-                confidence=np.empty((0,), dtype=np.float32),
-            )
+    class Pipeline:
+        def step(self, image, **_kwargs):
+            return _empty_frame_output(image)
 
     rclpy.init()
     node = BloodDetectionNode()
     try:
         node._active = True
-        node._model = Model()
+        node._pipeline = Pipeline()
         node._torch = Torch()
         node._mask_pub = _Publisher()
         node._overlay_pub = _Publisher()
@@ -253,27 +254,21 @@ def test_latest_frame_worker_replaces_backlog_without_parallel_model_calls():
     started = threading.Event()
     release = threading.Event()
 
-    class Model:
+    class Pipeline:
         calls = 0
 
-        def predict(self, image, **_kwargs):
+        def step(self, image, **_kwargs):
             self.calls += 1
             if self.calls == 1:
                 started.set()
                 assert release.wait(timeout=2.0)
-            height, width = image.shape[:2]
-            return SimpleNamespace(
-                mask=np.zeros((0, height, width), dtype=bool),
-                xyxy=np.empty((0, 4), dtype=np.float32),
-                class_id=np.empty((0,), dtype=np.int32),
-                confidence=np.empty((0,), dtype=np.float32),
-            )
+            return _empty_frame_output(image)
 
     rclpy.init()
     node = BloodDetectionNode()
     try:
         node._active = True
-        node._model = Model()
+        node._pipeline = Pipeline()
         node._torch = Torch()
         node._mask_pub = _Publisher()
         node._overlay_pub = _Publisher()
@@ -283,8 +278,8 @@ def test_latest_frame_worker_replaces_backlog_without_parallel_model_calls():
         for value in (100, 120, 140, 160):
             node._on_color(_jpeg(value))
         release.set()
-        _drain_until(node, lambda: node._model.calls >= 2)
-        assert node._model.calls == 2
+        _drain_until(node, lambda: node._pipeline.calls >= 2)
+        assert node._pipeline.calls == 2
         assert node._frames_dropped_latest >= 3
         assert node._worker_busy is False or node._pending_job is None
     finally:
@@ -300,7 +295,7 @@ def test_blood_health_requires_active_fresh_successful_observation():
         node._health_pub = _Publisher()
         node._diagnostics_pub = _Publisher()
         node._active = True
-        node._model = object()
+        node._pipeline = object()
         node._image_quality_ready = True
         node._last_observation_valid = True
         node._last_input_at = time.monotonic()

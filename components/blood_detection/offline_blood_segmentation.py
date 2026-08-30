@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Offline RF-DETR Seg-Small blood segmentation.
+"""Offline fused RF-DETR Seg-Small + Cutie blood segmentation.
 
-The supplied checkpoint has one explicit class: ``blood``.  Background is
-implicit, so it is never emitted as an instance class.
+One explicit class: ``blood``. Background is implicit. The live overlay is the
+fused mask, not detector-only instances.
 """
 
 from __future__ import annotations
@@ -16,12 +16,13 @@ import cv2
 import numpy as np
 
 
-DEFAULT_CHECKPOINT = Path.home() / "models" / "blood_detection.pth"
+COMPONENT_ROOT = Path(__file__).resolve().parent
+DEFAULT_CHECKPOINT = COMPONENT_ROOT / "pretrained" / "blood_detection_full_all.pth"
+DEFAULT_CUTIE = COMPONENT_ROOT / "pretrained" / "cutie_blood_full_all.pth"
 DEFAULT_IMAGES = Path.home() / "data" / "blood" / "imgs"
 
 
 def encode_coco_rle(mask: np.ndarray) -> dict[str, object]:
-    """Encode an HxW boolean mask as uncompressed COCO RLE."""
     binary = np.asarray(mask, dtype=np.uint8)
     flat = binary.reshape(-1, order="F")
     counts: list[int] = []
@@ -46,27 +47,15 @@ def centroid(mask: np.ndarray) -> list[float] | None:
     return [float(moments["m10"] / moments["m00"]), float(moments["m01"] / moments["m00"])]
 
 
-def draw_overlay(image_bgr: np.ndarray, instances: list[dict[str, object]]) -> np.ndarray:
+def draw_fused_overlay(image_bgr: np.ndarray, mask: np.ndarray, regions: list[dict]) -> np.ndarray:
     output = image_bgr.copy()
-    for item in instances:
-        # Keep the temporary mask until after both overlay and JSON preparation.
-        mask = item["_mask"]
-        assert isinstance(mask, np.ndarray)
+    if mask.any():
         layer = output.copy()
-        layer[mask] = (230, 80, 30)  # blue in BGR
+        layer[mask] = (230, 80, 30)
         output = cv2.addWeighted(output, 0.70, layer, 0.30, 0.0)
-        x0, y0, x1, y1 = (int(round(value)) for value in item["bbox_xyxy_px"])
-        cv2.rectangle(output, (x0, y0), (x1, y1), (230, 80, 30), 2)
-        cv2.putText(
-            output,
-            f"blood {item['confidence']:.2f}",
-            (x0, max(18, y0 - 5)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (230, 80, 30),
-            2,
-            cv2.LINE_AA,
-        )
+    for region in regions:
+        cx, cy = region["centroid_xy"]
+        cv2.circle(output, (int(round(cx)), int(round(cy))), 5, (230, 80, 30), -1)
     return output
 
 
@@ -74,12 +63,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--images-dir", type=Path, default=DEFAULT_IMAGES)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--cutie-checkpoint", type=Path, default=DEFAULT_CUTIE)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--redetect-interval", type=int, default=1)
     parser.add_argument("--max-frames", type=int, default=0, help="0 means all images")
     parser.add_argument("--fps", type=float, default=15.0, help="FPS used when writing MP4 videos")
     parser.add_argument("--no-video", action="store_true", help="Do not create overlay.mp4 and mask.mp4")
-    parser.add_argument("--no-optimize", action="store_true", help="Use for first smoke tests")
     return parser.parse_args()
 
 
@@ -87,10 +77,14 @@ def main() -> None:
     args = parse_args()
     if not 0.0 <= args.threshold <= 1.0:
         raise ValueError("--threshold must be in [0, 1]")
+    if args.redetect_interval < 1:
+        raise ValueError("--redetect-interval must be >= 1")
     if not args.images_dir.is_dir():
         raise FileNotFoundError(args.images_dir)
     if not args.checkpoint.is_file():
         raise FileNotFoundError(args.checkpoint)
+    if not args.cutie_checkpoint.is_file():
+        raise FileNotFoundError(args.cutie_checkpoint)
 
     image_paths = sorted(
         path for path in args.images_dir.iterdir() if path.suffix.lower() in {".png", ".jpg", ".jpeg"}
@@ -100,19 +94,14 @@ def main() -> None:
     if not image_paths:
         raise RuntimeError("No PNG/JPEG images found")
 
-    import torch
-    from rfdetr import RFDETRSegSmall
+    from blood.pipeline.runner import BloodPipeline, PipelineConfig
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Loading RF-DETR Seg-Small Blood checkpoint on {device}...")
-    model = RFDETRSegSmall.from_checkpoint(str(args.checkpoint))
-    if not args.no_optimize and device == "cuda":
-        model.optimize_for_inference(
-            compile=True,
-            batch_size=1,
-            dtype=torch.float16,
-            inplace=False,
-        )
+    print("Loading fused RF-DETR Seg-Small + Cutie Blood pipeline...")
+    pipe = BloodPipeline(
+        args.checkpoint,
+        args.cutie_checkpoint,
+        PipelineConfig(redetect_interval=args.redetect_interval, score_thr=args.threshold),
+    )
 
     masks_dir = args.output_dir / "masks"
     overlays_dir = args.output_dir / "overlays"
@@ -141,46 +130,26 @@ def main() -> None:
             image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
             if image_bgr is None:
                 raise RuntimeError(f"Cannot read {image_path}")
-            if device == "cuda":
-                torch.cuda.synchronize()
+            rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
             started = time.perf_counter()
-            detections = model.predict(image_bgr, threshold=args.threshold, include_source_image=False)
-            if device == "cuda":
-                torch.cuda.synchronize()
+            result = pipe.step(rgb)
             latency_ms = (time.perf_counter() - started) * 1000.0
-
             height, width = image_bgr.shape[:2]
-            raw_masks = getattr(detections, "mask", None)
-            if raw_masks is None:
-                raise RuntimeError("Checkpoint did not return segmentation masks")
-            union_mask = np.zeros((height, width), dtype=bool)
-            instances: list[dict[str, object]] = []
-            for instance_id, (box, class_id, confidence) in enumerate(
-                zip(detections.xyxy, detections.class_id, detections.confidence, strict=True)
-            ):
-                if int(class_id) != 0:
-                    raise RuntimeError(f"Unexpected class index {class_id}; expected only blood (0)")
-                mask = np.asarray(raw_masks[instance_id], dtype=bool)
-                if mask.shape != (height, width):
-                    mask = cv2.resize(mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST).astype(bool)
-                union_mask |= mask
+            union_mask = np.asarray(result.mask, dtype=bool)
+            overlay = draw_fused_overlay(image_bgr, union_mask, result.centroids)
+            instances = []
+            for item_id, region in enumerate(result.centroids):
+                x, y, w, h = (int(value) for value in region["bbox_xywh"])
                 instances.append(
                     {
-                        "instance_id": instance_id,
+                        "instance_id": item_id,
                         "class_id": 1,
                         "class_name": "blood",
-                        "confidence": float(confidence),
-                        "bbox_xyxy_px": [float(value) for value in box],
-                        "centroid_xy_px": centroid(mask),
-                        "mask_rle": encode_coco_rle(mask),
-                        "_mask": mask,
+                        "bbox_xyxy_px": [float(x), float(y), float(x + w), float(y + h)],
+                        "centroid_xy_px": [float(value) for value in region["centroid_xy"]],
+                        "area": int(region["area"]),
                     }
                 )
-
-            overlay = draw_overlay(image_bgr, instances)
-            # Remove internal NumPy masks before serialising.
-            for item in instances:
-                item.pop("_mask")
             cv2.imwrite(str(masks_dir / f"{image_path.stem}_blood_mask.png"), (union_mask * 255).astype(np.uint8))
             cv2.imwrite(str(overlays_dir / f"{image_path.stem}_overlay.jpg"), overlay)
             if overlay_video is not None and mask_video is not None:
@@ -191,16 +160,23 @@ def main() -> None:
                 "sequence": sequence,
                 "source_image": str(image_path),
                 "image": {"width": width, "height": height},
-                "model": "RF-DETR Seg-Small",
+                "model": "RF-DETR Seg-Small + Cutie",
                 "checkpoint": str(args.checkpoint),
+                "cutie_checkpoint": str(args.cutie_checkpoint),
                 "classes": ["blood"],
                 "confidence_threshold": args.threshold,
+                "fusion_action": result.action,
+                "ran_detector": result.ran_detector,
                 "inference_latency_ms": latency_ms,
                 "instances": instances,
                 "combined_blood_mask_rle": encode_coco_rle(union_mask),
+                "combined_blood_centroid_xy_px": centroid(union_mask),
             }
             results_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            print(f"[{sequence + 1}/{len(image_paths)}] {image_path.name}: {len(instances)} blood instances, {latency_ms:.1f} ms")
+            print(
+                f"[{sequence + 1}/{len(image_paths)}] {image_path.name}: "
+                f"{len(instances)} regions, {result.action}, {latency_ms:.1f} ms"
+            )
 
     if overlay_video is not None:
         overlay_video.release()

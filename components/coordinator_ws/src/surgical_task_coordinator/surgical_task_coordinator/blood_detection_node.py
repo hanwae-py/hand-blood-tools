@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""ROS 2 lifecycle adapter for the supplied RF-DETR Seg-Small Blood model.
+"""ROS 2 lifecycle adapter for fused RF-DETR Seg-Small + Cutie Blood.
 
-RGB recognition publishes 2D masks always. When a fresh compressedDepth frame
-matches the RGB stamp, each mask centroid is sampled for metric depth in the
-RGB frame: same HxW is used directly, otherwise native depth is registered
-with color/depth CameraInfo and the CAM4 depth-to-color extrinsics. Missing
-or unmappable depth skips those fields. Set require_depth to skip frames that
-have no usable depth.
+RGB recognition publishes the fused 2D mask always. Detector-only overlays are
+not the default. When a fresh compressedDepth frame matches the RGB stamp,
+each mask centroid is sampled for metric depth in the RGB frame: same HxW is
+used directly, otherwise native depth is registered with color/depth
+CameraInfo and the CAM4 depth-to-color extrinsics. Missing or unmappable
+depth skips those fields. Set require_depth to skip frames that have no
+usable depth.
 """
 
 from __future__ import annotations
@@ -176,10 +177,16 @@ class BloodDetectionNode(LifecycleNode):
             "depth_camera_info_topic", f"{synced}/depth/camera_info"
         )
         self.declare_parameter(
-            "checkpoint", str(Path.home() / "models" / "blood_detection.pth")
+            "checkpoint",
+            str(Path.home() / "models" / "blood_detection_full_all.pth"),
+        )
+        self.declare_parameter(
+            "cutie_checkpoint",
+            str(Path.home() / "models" / "cutie_blood_full_all.pth"),
         )
         self.declare_parameter("confidence_threshold", 0.5)
-        self.declare_parameter("optimize", True)
+        self.declare_parameter("redetect_interval", 1)
+        self.declare_parameter("min_area", 400)
         self.declare_parameter("require_depth", False)
         self.declare_parameter("reject_low_quality_input", False)
         self.declare_parameter("minimum_gray_p99", 20.0)
@@ -201,7 +208,7 @@ class BloodDetectionNode(LifecycleNode):
         self.declare_parameter("autostart", False)
 
         self._active = False
-        self._model = None
+        self._pipeline = None
         self._torch = None
         self._state_lock = Lock()
         self._worker_event = Event()
@@ -278,16 +285,27 @@ class BloodDetectionNode(LifecycleNode):
             if not 0.0 <= threshold <= 1.0:
                 raise ValueError("confidence_threshold must be in [0, 1]")
             checkpoint = str(self.get_parameter("checkpoint").value)
+            cutie_checkpoint = str(self.get_parameter("cutie_checkpoint").value)
+            redetect_interval = int(self.get_parameter("redetect_interval").value)
+            if redetect_interval < 1:
+                raise ValueError("redetect_interval must be >= 1")
+            min_area = int(self.get_parameter("min_area").value)
             import torch
-            from rfdetr import RFDETRSegSmall
+            from blood.pipeline.runner import BloodPipeline, PipelineConfig
 
-            self.get_logger().info("configuring: loading RF-DETR Seg-Small Blood model")
-            model = RFDETRSegSmall.from_checkpoint(checkpoint)
-            if bool(self.get_parameter("optimize").value) and torch.cuda.is_available():
-                model.optimize_for_inference(
-                    compile=True, batch_size=1, dtype=torch.float16, inplace=False
-                )
-            self._model = model
+            self.get_logger().info(
+                "configuring: loading fused RF-DETR Seg-Small + Cutie Blood pipeline"
+            )
+            pipeline = BloodPipeline(
+                checkpoint,
+                cutie_checkpoint,
+                PipelineConfig(
+                    redetect_interval=redetect_interval,
+                    score_thr=threshold,
+                    min_area=min_area,
+                ),
+            )
+            self._pipeline = pipeline
             self._torch = torch
             self._mask_pub = self.create_lifecycle_publisher(
                 Image, str(self.get_parameter("mask_topic").value), reliable_qos(5)
@@ -321,6 +339,8 @@ class BloodDetectionNode(LifecycleNode):
                 self._pending_job = None
                 self._completed_frame = None
                 self._active = True
+                if self._pipeline is not None:
+                    self._pipeline.reset()
             self.get_logger().info(
                 "ACTIVE: processing RGB frames for Blood masks "
                 f"(require_depth={bool(self.get_parameter('require_depth').value)})"
@@ -338,18 +358,18 @@ class BloodDetectionNode(LifecycleNode):
         if not self._stop_worker():
             self.get_logger().error("Blood worker did not stop before cleanup")
             return TransitionCallbackReturn.FAILURE
-        self._model = None
+        self._pipeline = None
         if self._torch is not None and self._torch.cuda.is_available():
             self._torch.cuda.empty_cache()
         self._torch = None
         self._reset_observation_state()
-        self.get_logger().info("cleaned up: Blood model released")
+        self.get_logger().info("cleaned up: Blood pipeline released")
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
         stopped = self._stop_worker()
         if stopped:
-            self._model = None
+            self._pipeline = None
         self._reset_observation_state()
         return TransitionCallbackReturn.SUCCESS if stopped else TransitionCallbackReturn.FAILURE
 
@@ -616,7 +636,7 @@ class BloodDetectionNode(LifecycleNode):
     def _on_color(self, message: CompressedImage) -> None:
         """Replace the pending frame in O(1); inference runs off the executor."""
         with self._state_lock:
-            if not self._active or self._model is None:
+            if not self._active or self._pipeline is None:
                 return
         require_depth = bool(self.get_parameter("require_depth").value)
         try:
@@ -637,7 +657,7 @@ class BloodDetectionNode(LifecycleNode):
         if self._worker is None or not self._worker.is_alive():
             self._start_worker()
         with self._state_lock:
-            if not self._active or self._model is None:
+            if not self._active or self._pipeline is None:
                 return
             self._frames_received += 1
             self._last_input_at = time.monotonic()
@@ -758,25 +778,22 @@ class BloodDetectionNode(LifecycleNode):
                 if (
                     not self._active
                     or job.generation != self._worker_generation
-                    or self._model is None
+                    or self._pipeline is None
                     or self._torch is None
                 ):
                     return _CompletedFrame(generation=job.generation, kind="discarded")
-                model = self._model
+                pipeline = self._pipeline
                 torch = self._torch
+            rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             started = time.perf_counter()
-            detections = model.predict(
-                image_bgr,
-                threshold=job.confidence_threshold,
-                include_source_image=False,
-            )
+            output = pipeline.step(rgb)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             process_ms = (time.perf_counter() - started) * 1000.0
             return self._build_result(
-                job, image_bgr, detections, depth_m, image_quality, process_ms
+                job, image_bgr, output, depth_m, image_quality, process_ms
             )
         except Exception as exc:
             return _CompletedFrame(
@@ -882,7 +899,7 @@ class BloodDetectionNode(LifecycleNode):
             },
             "camera": job.camera,
             "image": {"width": width, "height": height},
-            "model": "RF-DETR Seg-Small",
+            "model": "RF-DETR Seg-Small + Cutie",
             "classes": ["blood"],
             "depth_sampled": False,
             "instances": [],
@@ -905,44 +922,47 @@ class BloodDetectionNode(LifecycleNode):
         self,
         job: _FrameJob,
         image_bgr: np.ndarray,
-        detections,
+        output,
         depth_m: np.ndarray | None,
         image_quality: dict[str, float],
         process_ms: float,
     ) -> _CompletedFrame:
         source = job.source
         height, width = image_bgr.shape[:2]
-        raw_masks = getattr(detections, "mask", None)
-        if raw_masks is None:
-            raise RuntimeError("Blood checkpoint returned no segmentation masks")
-        union_mask = np.zeros((height, width), dtype=bool)
+        union_mask = np.asarray(getattr(output, "mask"), dtype=bool)
+        if union_mask.shape != (height, width):
+            union_mask = cv2.resize(
+                union_mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+            ).astype(bool)
         overlay = image_bgr.copy()
-        instances: list[dict[str, object]] = []
-        for item_id, (box, class_id, confidence) in enumerate(
-            zip(detections.xyxy, detections.class_id, detections.confidence, strict=True)
-        ):
-            if int(class_id) != 0:
-                raise RuntimeError(f"unexpected Blood class index: {class_id}")
-            mask = np.asarray(raw_masks[item_id], dtype=bool)
-            if mask.shape != (height, width):
-                mask = cv2.resize(mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST).astype(bool)
-            union_mask |= mask
+        if union_mask.any():
             colored = overlay.copy()
-            colored[mask] = (230, 80, 30)  # blue, BGR
+            colored[union_mask] = (230, 80, 30)
             overlay = cv2.addWeighted(overlay, 0.70, colored, 0.30, 0.0)
-            x0, y0, x1, y1 = (int(round(value)) for value in box)
-            cv2.rectangle(overlay, (x0, y0), (x1, y1), (230, 80, 30), 2)
-            cv2.putText(overlay, f"blood {float(confidence):.2f}", (x0, max(18, y0 - 5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 80, 30), 2, cv2.LINE_AA)
-            centroid = mask_centroid(mask)
+        instances: list[dict[str, object]] = []
+        regions = list(getattr(output, "centroids", []) or [])
+        component_masks = None
+        if regions:
+            _, labels, _, _ = cv2.connectedComponentsWithStats(
+                union_mask.astype(np.uint8), connectivity=8
+            )
+            component_masks = labels
+        for item_id, region in enumerate(regions):
+            centroid = [float(value) for value in region["centroid_xy"]]
+            x, y, w, h = (int(value) for value in region["bbox_xywh"])
+            cv2.circle(overlay, (int(round(centroid[0])), int(round(centroid[1]))), 5, (230, 80, 30), -1)
+            instance_mask = union_mask
+            if component_masks is not None:
+                label = int(region.get("label", item_id + 1))
+                instance_mask = component_masks == label
             instance: dict[str, object] = {
                 "instance_id": item_id,
                 "class_id": 1,
                 "class_name": "blood",
-                "confidence": float(confidence),
-                "bbox_xyxy_px": [float(value) for value in box],
+                "bbox_xyxy_px": [float(x), float(y), float(x + w), float(y + h)],
                 "centroid_xy_px": centroid,
-                "mask_rle": encode_coco_rle(mask),
+                "area": int(region.get("area", 0)),
+                "mask_rle": encode_coco_rle(instance_mask),
             }
             centroid_depth_m = (
                 sample_centroid_depth_m(depth_m, centroid) if depth_m is not None else None
@@ -981,9 +1001,12 @@ class BloodDetectionNode(LifecycleNode):
             },
             "image": {"width": width, "height": height},
             "camera": job.camera,
-            "model": "RF-DETR Seg-Small",
+            "model": "RF-DETR Seg-Small + Cutie",
             "classes": ["blood"],
             "confidence_threshold": job.confidence_threshold,
+            "redetect_interval": int(self.get_parameter("redetect_interval").value),
+            "fusion_action": str(getattr(output, "action", "")),
+            "ran_detector": bool(getattr(output, "ran_detector", True)),
             "inference_latency_ms": process_ms,
             "depth_sampled": depth_m is not None,
             "instances": instances,
@@ -1036,7 +1059,7 @@ class BloodDetectionNode(LifecycleNode):
             "camera": str(self.get_parameter("camera").value),
             "ready": bool(
                 self._active
-                and self._model is not None
+                and self._pipeline is not None
                 and input_fresh
                 and (not reject_low_quality or self._image_quality_ready)
                 and self._last_observation_valid

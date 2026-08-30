@@ -10,14 +10,17 @@ postprocessor handoff, and their ROS 2 take-turn controller.
 | `components/tool_runtime_v1_6` | Tool v1.6 | Selectable RF-DETR Seg Small/Medium/Large/XLarge Tool segmentation; optional depth sample + planar 4-DOF-with-normal-prior pose |
 | `components/hand_keypoints_ros` | current | MediaPipe hand keypoints + depth-derived hand pose |
 | `components/hand_open_close` | offline-tested handoff | ROS-independent anatomical `OPEN`/`CLOSED` rule from 21 hand keypoints; proposed ROS adaptation is not yet tested |
-| `components/blood_detection` | current | RF-DETR Seg-Small 2D Blood mask/blue overlay; optional centroid depth |
+| `components/blood_detection` | RF-DETR + Cutie | Fused RF-DETR Seg-Small + Cutie 2D Blood mask/blue overlay; optional centroid depth |
 | `components/coordinator_ws` | current | `DETECT_TOOL`, `DETECT_HAND`, `DETECT_BLOOD`, `STOP` lifecycle selector |
 
 This folder deliberately does **not** include checkpoints, MCAP, H5, large
-recorded datasets, Python virtual environments, or ROS `build/install/log`
-folders. They must be supplied locally on the destination PC. The documented
-22-second fixture under `components/hand_open_close/test_data` is the only
-small recorded-video exception.
+recorded datasets, Python virtual environments, ROS `build/install/log`
+folders, or the Blood `third_party` clones (`rfdetr`, `cutie`). They must be
+supplied locally on the destination PC. The documented 22-second fixture
+under `components/hand_open_close/test_data` is the only small recorded-video
+exception. This repo ships the empty folder
+`components/blood_detection/third_party/` only; clone the two trees into it
+as described below.
 
 ## Required external checkpoints
 
@@ -49,9 +52,33 @@ The bundled `cam4_20260814_mayo` profile is provisional and must not be reused
 for a different live view without calibration. CAM3 ROI stays disabled until
 CAM3 August image data is received and calibrated.
 
-Blood:
-[RF-DETR Seg-Small checkpoint](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view).
-Set `BLOOD_CHECKPOINT` in `config/system.env` to that local `.pth` path.
+Blood uses a fused **RF-DETR Seg-Small + Cutie** pipeline. This repo does not
+vendor those sources. Create the empty folder (already present after clone)
+and clone into it:
+
+```bash
+mkdir -p components/blood_detection/third_party
+git clone https://github.com/roboflow/rf-detr.git components/blood_detection/third_party/rfdetr
+git clone https://github.com/hkchengrex/Cutie.git components/blood_detection/third_party/cutie
+```
+
+Deploy tree: RF-DETR **1.10.0.dev**. Exact commit/tag: **TBD**.
+Do this before `components/blood_detection/setup_env.sh`.
+
+Download the two live weights from Google Drive (**TBD**; fill in after upload)
+into `$HOME/models/` or `components/blood_detection/pretrained/`:
+
+- `blood_detection_full_all.pth` — Drive URL **TBD**
+- `cutie_blood_full_all.pth` — Drive URL **TBD**
+
+Set `BLOOD_PYTHON`, `BLOOD_CHECKPOINT`, and `BLOOD_CUTIE_CHECKPOINT` in
+`config/system.env`. Do not point Blood at `RFDETR_PYTHON` or the old
+single-file `blood_detection.pth` overlay. See
+[components/blood_detection/README.md](components/blood_detection/README.md).
+
+The previous detector-only
+[RF-DETR Seg-Small checkpoint](https://drive.google.com/file/d/1Srkw_3K3Feb7FyTy7kNv-eCF0Ev-W773/view)
+is not the live fused overlay.
 
 ## First setup on another PC
 
@@ -65,9 +92,18 @@ cd hand-blood-tools
 1. Install Ubuntu 24.04, ROS 2 Jazzy, NVIDIA CUDA, and the Python
    dependencies described by the Hand and Tool component documentation.
    The deploy scripts target a native Ubuntu PC, not WSL.
-2. Create two Python 3.12 environments, one for Hand and one for Tool/Blood.
-   Do not combine them: Hand pins `torch==2.11.0`, Tool/Blood pins
-   `torch==2.7.0+cu118` and `rfdetr==1.8.3`. Use conda or venv.
+2. Create three Python 3.12 environments: Hand, Tool, and Blood.
+   Do not combine them: Hand pins `torch==2.11.0`, Tool pins
+   `torch==2.7.0+cu118` and `rfdetr==1.8.3`, Blood pins `torch==2.6.0+cu124`
+   with cloned RF-DETR 1.10.0.dev + Cutie. Use conda or venv.
+
+   Clone Blood third-party trees into the empty folder first:
+
+   ```bash
+   mkdir -p components/blood_detection/third_party
+   git clone https://github.com/roboflow/rf-detr.git components/blood_detection/third_party/rfdetr
+   git clone https://github.com/hkchengrex/Cutie.git components/blood_detection/third_party/cutie
+   ```
 
    Conda:
 
@@ -75,11 +111,17 @@ cd hand-blood-tools
    conda env create -f components/hand_keypoints_ros/environment.yml
    conda env create -f components/tool_runtime_v1_6/algorithm/environment/environment.yml
    conda run -n rfdetr pip install -e components/tool_runtime_v1_6/algorithm
+   conda env create -f components/blood_detection/environment.yml
+   conda run -n blood bash components/blood_detection/setup_env.sh
    ```
 
-   Point `HAND_PYTHON` and `RFDETR_PYTHON` at
-   `$(conda info --base)/envs/hand/bin/python` and
-   `$(conda info --base)/envs/rfdetr/bin/python`.
+   Point `HAND_PYTHON`, `RFDETR_PYTHON`, and `BLOOD_PYTHON` at
+   `$(conda info --base)/envs/hand/bin/python`,
+   `$(conda info --base)/envs/rfdetr/bin/python`, and
+   `$(conda info --base)/envs/blood/bin/python`.
+
+   If the name `blood` is already used by the BloodDetection training env,
+   create `blood-ros` instead and set `BLOOD_PYTHON` to that interpreter.
 
    venv (created inside this clone):
 
@@ -90,13 +132,19 @@ cd hand-blood-tools
    python3.12 -m venv .venv-rfdetr
    .venv-rfdetr/bin/pip install -r components/tool_runtime_v1_6/algorithm/environment/requirements-reference-cu118.txt
    .venv-rfdetr/bin/pip install -e components/tool_runtime_v1_6/algorithm
+
+   python3.12 -m venv .venv-blood
+   source .venv-blood/bin/activate
+   bash components/blood_detection/setup_env.sh
+   deactivate
    ```
 
-   Point `HAND_PYTHON` and `RFDETR_PYTHON` at
-   `$PWD/.venv-hand/bin/python` and `$PWD/.venv-rfdetr/bin/python`.
+   Point `HAND_PYTHON`, `RFDETR_PYTHON`, and `BLOOD_PYTHON` at
+   `$PWD/.venv-hand/bin/python`, `$PWD/.venv-rfdetr/bin/python`, and
+   `$PWD/.venv-blood/bin/python`.
 
    Do not `conda activate` or `source` the venv in the ROS `colcon` build
-   shell. The run scripts only need those two interpreter paths.
+   shell. The run scripts only need those interpreter paths.
 3. Copy the required checkpoints/data outside this source folder.
 4. Create the local configuration file:
 
@@ -150,7 +198,7 @@ and is converted with `0.001 m/unit`. This is **not** normalized monocular depth
 | Node | RGB without depth | When matching depth is present |
 |---|---|---|
 | Tool | Always runs RF-DETR and publishes 2D at the longitudinal-axis midpoint | Samples metric depth at that UV; with camera infos also runs planar 4-DOF pose |
-| Blood | Always runs RF-DETR and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`) in the RGB frame (same HxW, or depth-to-color registration). No suction pose |
+| Blood | Always runs fused RF-DETR + Cutie and publishes 2D masks | Samples metric depth at the mask centroid (`centroid_depth_m`) in the RGB frame (same HxW, or depth-to-color registration). No suction pose |
 | Hand | 2D MediaPipe keypoints | Back-projects keypoints with RealSense metric depth in the RGB frame (same HxW, or depth-to-color registration) |
 
 Tool defaults: `confidence_threshold` 0.30 and `require_depth:=false`. Small
@@ -206,7 +254,8 @@ worker reads only `/perception/ingress/<cam>` topics.
 bash scripts/run_perception_ingress.sh both   # or cam_3, or cam_4
 bash scripts/run_tool_v16.sh cam_4            # or cam_3
 bash scripts/run_hand_cam4.sh cam_4
-bash scripts/run_blood_cam4.sh cam_4
+bash scripts/run_blood_cam4.sh flir           # integrated default
+bash scripts/run_blood_cam4.sh cam_4          # single-worker debug
 bash scripts/run_final_overlay.sh
 ```
 
@@ -223,5 +272,7 @@ bash scripts/run_final_overlay.sh
   `TOOL_ROI_PROFILE=none`; explicitly select the calibrated live profile.
 - Valid Tool pose and Hand 3D both need confirmed metric scale and RGB-depth
   alignment; the current run defaults leave those flags false.
-- Blood currently publishes 2D masks plus an optional centroid depth sample.
+- Blood currently publishes fused 2D masks plus an optional centroid depth sample.
   A 3D robot suction pose needs a separate depth-based target-selection step.
+  Blood shares the GPU with Tool/Hand when they run together; it does not share
+  their Python environments.

@@ -1,6 +1,9 @@
 config/system.env
 .venv-hand/
 .venv-rfdetr/
+.venv-blood/
+components/blood_detection/third_party/rfdetr/
+components/blood_detection/third_party/cutie/
 external_assets/
 **/build/
 **/install/

@@ -1,0 +1,14 @@
+# Deploy env for Blood RF-DETR + Cutie. Do not share with the Tool rfdetr env.
+# Recreate from the repository root:
+#   conda env create -f components/blood_detection/environment.yml
+#   conda activate blood
+#   bash components/blood_detection/setup_env.sh
+#
+# If a BloodDetection training env already occupies the name `blood`, create
+# this one as `blood-ros` instead and point BLOOD_PYTHON at it.
+name: blood
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
