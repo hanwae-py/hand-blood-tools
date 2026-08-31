@@ -2127,7 +2127,7 @@ class FinalOverlayCompositor(Node):
             )
         image = selected.image.copy()
         if context['mask_drawable']:
-            self._draw_blood(image, self._suction_mask, label='BLEEDING')
+            self._draw_blood(image, self._suction_mask, label='blood')
         blood_label = (
             'LIVE' if context['mask_drawable']
             else str(context['mask_state']).upper()
@@ -2135,7 +2135,7 @@ class FinalOverlayCompositor(Node):
         cv2.rectangle(image, (0, 0), (image.shape[1], 46), (12, 24, 36), -1)
         draw_outlined_text(
             image,
-            f'SUCTION  BLEEDING:{blood_label}',
+            f'SUCTION  blood:{blood_label}',
             (14, 32),
             0.68,
             (100, 245, 150)
@@ -2576,11 +2576,12 @@ class FinalOverlayCompositor(Node):
                 state.last_drop_signature = signature
             return
         tinted = image.copy()
-        tinted[mask] = (40, 40, 235)
-        blended = cv2.addWeighted(image, 0.65, tinted, 0.35, 0.0)
+        # BGR blue: red blood is hard to see under a red tint.
+        tinted[mask] = (255, 90, 0)
+        blended = cv2.addWeighted(image, 0.55, tinted, 0.45, 0.0)
         image[mask] = blended[mask]
         contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(image, contours, -1, (35, 35, 255), 3, cv2.LINE_AA)
+        cv2.drawContours(image, contours, -1, (255, 210, 40), 3, cv2.LINE_AA)
         if label and bool(np.any(mask)):
             ys, xs = np.nonzero(mask)
             draw_outlined_text(
@@ -2588,7 +2589,7 @@ class FinalOverlayCompositor(Node):
                 str(label),
                 (max(8, int(xs.min()) + 6), max(28, int(ys.min()) - 8)),
                 0.78,
-                (35, 35, 255),
+                (255, 220, 60),
                 2,
             )
 

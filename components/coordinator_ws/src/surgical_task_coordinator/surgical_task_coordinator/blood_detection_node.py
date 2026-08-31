@@ -178,11 +178,11 @@ class BloodDetectionNode(LifecycleNode):
         )
         self.declare_parameter(
             "checkpoint",
-            str(Path.home() / "models" / "blood_detection_full_all.pth"),
+            str(Path.home() / "models" / "detr_blood.pth"),
         )
         self.declare_parameter(
             "cutie_checkpoint",
-            str(Path.home() / "models" / "cutie_blood_full_all.pth"),
+            str(Path.home() / "models" / "cutie_blood.pth"),
         )
         self.declare_parameter("confidence_threshold", 0.5)
         self.declare_parameter("redetect_interval", 1)
@@ -937,8 +937,12 @@ class BloodDetectionNode(LifecycleNode):
         overlay = image_bgr.copy()
         if union_mask.any():
             colored = overlay.copy()
-            colored[union_mask] = (230, 80, 30)
-            overlay = cv2.addWeighted(overlay, 0.70, colored, 0.30, 0.0)
+            colored[union_mask] = (255, 90, 0)
+            overlay = cv2.addWeighted(overlay, 0.55, colored, 0.45, 0.0)
+            contours, _ = cv2.findContours(
+                union_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            cv2.drawContours(overlay, contours, -1, (255, 210, 40), 3, cv2.LINE_AA)
         instances: list[dict[str, object]] = []
         regions = list(getattr(output, "centroids", []) or [])
         component_masks = None
@@ -950,7 +954,17 @@ class BloodDetectionNode(LifecycleNode):
         for item_id, region in enumerate(regions):
             centroid = [float(value) for value in region["centroid_xy"]]
             x, y, w, h = (int(value) for value in region["bbox_xywh"])
-            cv2.circle(overlay, (int(round(centroid[0])), int(round(centroid[1]))), 5, (230, 80, 30), -1)
+            cv2.circle(overlay, (int(round(centroid[0])), int(round(centroid[1]))), 5, (255, 210, 40), -1)
+            cv2.putText(
+                overlay,
+                "blood",
+                (int(round(centroid[0])) + 8, int(round(centroid[1])) - 8),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 220, 60),
+                2,
+                cv2.LINE_AA,
+            )
             instance_mask = union_mask
             if component_masks is not None:
                 label = int(region.get("label", item_id + 1))

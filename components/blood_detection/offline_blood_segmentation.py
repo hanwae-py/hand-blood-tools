@@ -17,8 +17,8 @@ import numpy as np
 
 
 COMPONENT_ROOT = Path(__file__).resolve().parent
-DEFAULT_CHECKPOINT = COMPONENT_ROOT / "pretrained" / "blood_detection_full_all.pth"
-DEFAULT_CUTIE = COMPONENT_ROOT / "pretrained" / "cutie_blood_full_all.pth"
+DEFAULT_CHECKPOINT = Path.home() / "models" / "detr_blood.pth"
+DEFAULT_CUTIE = Path.home() / "models" / "cutie_blood.pth"
 DEFAULT_IMAGES = Path.home() / "data" / "blood" / "imgs"
 
 
@@ -51,11 +51,21 @@ def draw_fused_overlay(image_bgr: np.ndarray, mask: np.ndarray, regions: list[di
     output = image_bgr.copy()
     if mask.any():
         layer = output.copy()
-        layer[mask] = (230, 80, 30)
-        output = cv2.addWeighted(output, 0.70, layer, 0.30, 0.0)
+        layer[mask] = (255, 90, 0)
+        output = cv2.addWeighted(output, 0.55, layer, 0.45, 0.0)
     for region in regions:
         cx, cy = region["centroid_xy"]
-        cv2.circle(output, (int(round(cx)), int(round(cy))), 5, (230, 80, 30), -1)
+        cv2.circle(output, (int(round(cx)), int(round(cy))), 5, (255, 210, 40), -1)
+        cv2.putText(
+            output,
+            "blood",
+            (int(round(cx)) + 8, int(round(cy)) - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 220, 60),
+            2,
+            cv2.LINE_AA,
+        )
     return output
 
 

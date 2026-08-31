@@ -16,7 +16,7 @@ def resolve_rfdetr_checkpoint(path: str | Path | None) -> Path:
         p = Path(path)
         if p.is_file():
             return p
-        for name in ("checkpoint_best_total.pth", "last.ckpt", "blood_detection_full_all.pth"):
+        for name in ("detr_blood.pth", "blood_detr.pth", "checkpoint_best_total.pth", "last.ckpt", "blood_detection_full_all.pth"):
             cand = p / name
             if cand.is_file():
                 return cand
@@ -24,7 +24,7 @@ def resolve_rfdetr_checkpoint(path: str | Path | None) -> Path:
             if cand.is_file():
                 return cand
         raise FileNotFoundError(f"No RF-DETR checkpoint under {p}")
-    default = PRETRAINED_DIR / "blood_detection_full_all.pth"
+    default = PRETRAINED_DIR / "detr_blood.pth"
     if default.is_file():
         return default
     raise FileNotFoundError(f"No RF-DETR checkpoint at {default}")
@@ -38,11 +38,12 @@ def resolve_cutie_checkpoint(path: str | Path | None) -> Path:
         matches = list(p.glob("*_last.pth")) + list(p.glob("**/*_last.pth"))
         if matches:
             return matches[0]
-        named = p / "cutie_blood_full_all.pth"
-        if named.is_file():
-            return named
+        for name in ("cutie_blood.pth", "blood_cutie.pth", "cutie_blood_full_all.pth"):
+            named = p / name
+            if named.is_file():
+                return named
         raise FileNotFoundError(f"No Cutie checkpoint under {p}")
-    default = PRETRAINED_DIR / "cutie_blood_full_all.pth"
+    default = PRETRAINED_DIR / "cutie_blood.pth"
     if default.is_file():
         return default
     raise FileNotFoundError(f"No Cutie checkpoint at {default}")

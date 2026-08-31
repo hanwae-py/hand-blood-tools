@@ -11,8 +11,8 @@ Python interpreter (`BLOOD_PYTHON`), not `RFDETR_PYTHON`.
 - Re-detect: every processed frame (`redetect_interval: 1`)
 - Target: **10 Hz** end-to-end at 720×1280. **8–9 Hz is acceptable.** A ~30 Hz
   camera is dropped to latest-frame, not processed frame-for-frame.
-- Weights (gitignored `.pth`): `pretrained/blood_detection_full_all.pth`,
-  `pretrained/cutie_blood_full_all.pth`
+- Weights (gitignored `.pth`): `pretrained/detr_blood.pth`,
+  `pretrained/cutie_blood.pth`
 
 ROS Blood uses `scripts/run_blood_cam4.sh`. The integrated stack starts
 **FLIR** (`bash scripts/run_blood_cam4.sh flir`). `cam_4` is for a single-worker
@@ -40,8 +40,8 @@ Copy into `components/blood_detection/pretrained/` or `$HOME/models/` and set
 
 | File | Drive |
 |---|---|
-| `blood_detection_full_all.pth` | **TBD** |
-| `cutie_blood_full_all.pth` | **TBD** |
+| `detr_blood.pth` | **TBD** |
+| `cutie_blood.pth` | **TBD** |
 
 The old single-file RF-DETR-only checkpoint is not the live overlay.
 
@@ -81,8 +81,8 @@ already do this).
 
 ```bash
 "${BLOOD_PYTHON}" components/blood_detection/offline_blood_segmentation.py \
-  --checkpoint components/blood_detection/pretrained/blood_detection_full_all.pth \
-  --cutie-checkpoint components/blood_detection/pretrained/cutie_blood_full_all.pth \
+  --checkpoint "$HOME/models/detr_blood.pth" \
+  --cutie-checkpoint "$HOME/models/cutie_blood.pth" \
   --images-dir "$HOME/data/blood/imgs" \
   --output-dir "$HOME/results/blood_smoke_test" \
   --max-frames 5 \

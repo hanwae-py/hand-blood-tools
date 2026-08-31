@@ -68,8 +68,8 @@ Do this before `components/blood_detection/setup_env.sh`.
 Download the two live weights from Google Drive (**TBD**; fill in after upload)
 into `$HOME/models/` or `components/blood_detection/pretrained/`:
 
-- `blood_detection_full_all.pth` — Drive URL **TBD**
-- `cutie_blood_full_all.pth` — Drive URL **TBD**
+- `detr_blood.pth` — Drive URL **TBD**
+- `cutie_blood.pth` — Drive URL **TBD**
 
 Set `BLOOD_PYTHON`, `BLOOD_CHECKPOINT`, and `BLOOD_CUTIE_CHECKPOINT` in
 `config/system.env`. Do not point Blood at `RFDETR_PYTHON` or the old

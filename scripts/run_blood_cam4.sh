@@ -9,7 +9,7 @@ CAM_OVERRIDES=()
 NODE_NAME="blood_detection_node"
 PARAM_FILE_ARGS=()
 if [[ "${1:-}" == "help" || "${1:-}" == "--help" ]]; then
-  echo "usage: bash scripts/run_blood_cam4.sh [cam_1|cam_2|cam_3|cam_4|flir]" >&2
+  echo "usage: bash scripts/run_blood_cam4.sh [cam_1|cam_2|cam_3|cam_4|flir|suction]" >&2
   set +u
   source "/opt/ros/${ROS_DISTRO}/setup.bash"
   set -u
@@ -46,12 +46,16 @@ source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${COORD}/install/setup.bash"
 set -u
 BLOOD_ROOT="${ROOT}/components/blood_detection"
-BLOOD_CHECKPOINT="${BLOOD_CHECKPOINT:-${BLOOD_ROOT}/pretrained/blood_detection_full_all.pth}"
-BLOOD_CUTIE_CHECKPOINT="${BLOOD_CUTIE_CHECKPOINT:-${BLOOD_ROOT}/pretrained/cutie_blood_full_all.pth}"
+BLOOD_CHECKPOINT="${BLOOD_CHECKPOINT:-${HOME}/models/detr_blood.pth}"
+BLOOD_CUTIE_CHECKPOINT="${BLOOD_CUTIE_CHECKPOINT:-${HOME}/models/cutie_blood.pth}"
 if [[ -z "${BLOOD_PYTHON:-}" ]]; then
   echo "BLOOD_PYTHON is not configured. Set it in config/system.env (not RFDETR_PYTHON)." >&2
   exit 1
 fi
+# ROS rclpy loads system libcrypto first. Conda Python 3.12 _ssl needs
+# OPENSSL_3.3+, so put the Blood env lib ahead of /opt/ros on LD_LIBRARY_PATH.
+BLOOD_ENV_LIB="$(cd "$(dirname "${BLOOD_PYTHON}")/../lib" && pwd)"
+export LD_LIBRARY_PATH="${BLOOD_ENV_LIB}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 export PYTHONPATH="${BLOOD_ROOT}:${ROOT}/components/tool_runtime_v1_6/algorithm/src${PYTHONPATH:+:${PYTHONPATH}}"
 exec "${BLOOD_PYTHON}" -m surgical_task_coordinator.blood_detection_node \
   --ros-args -r "__node:=${NODE_NAME}" \
