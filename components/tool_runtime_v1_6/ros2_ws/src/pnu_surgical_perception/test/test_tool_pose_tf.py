@@ -388,3 +388,72 @@ def test_observation_u_override_keeps_bbox_and_pose_selector_order_identical():
         'mayo_army#2',
         'mayo_army#1',
     ]
+
+
+def test_spatial_selector_outputs_stabilized_translation_when_enabled():
+    selector = ToolSpatialTfSelector(
+        max_tools_per_class=8,
+        reset_stamp_jump_sec=5.0,
+        position_stabilization_enabled=True,
+        position_deadband_m=0.008,
+        position_smoothing_alpha=0.20,
+        position_max_jump_m=0.04,
+        position_relocation_confirmation_frames=2,
+        position_relocation_consistency_m=0.015,
+        position_max_missed_frames=3,
+    )
+    first = selector.assign(
+        _header(100, 0),
+        [_valid_planar_tool(position=(0.10, 0.20, 0.80))],
+        'mayo',
+    )[0]
+    jittered = selector.assign(
+        _header(100, 100_000_000),
+        [_valid_planar_tool(position=(0.105, 0.20, 0.80))],
+        'mayo',
+    )[0]
+
+    assert first.transform is not None
+    assert jittered.transform is not None
+    assert jittered.transform.transform.translation.x == pytest.approx(0.10)
+    assert selector.position_filter_held_total == 1
+
+
+def test_position_filter_resets_when_spatial_selector_cardinality_changes():
+    selector = ToolSpatialTfSelector(
+        max_tools_per_class=8,
+        reset_stamp_jump_sec=5.0,
+        position_stabilization_enabled=True,
+    )
+    selector.assign(
+        _header(100, 0),
+        [
+            _valid_planar_tool(
+                local_id=1,
+                position=(0.10, 0.20, 0.80),
+                horizontal_u_px=100.0,
+            ),
+            _valid_planar_tool(
+                local_id=2,
+                position=(0.30, 0.20, 0.80),
+                horizontal_u_px=700.0,
+            ),
+        ],
+        'mayo',
+    )
+    remaining = selector.assign(
+        _header(100, 100_000_000),
+        [
+            _valid_planar_tool(
+                local_id=9,
+                position=(0.30, 0.20, 0.80),
+                horizontal_u_px=700.0,
+            )
+        ],
+        'mayo',
+    )[0]
+
+    assert remaining.transform is not None
+    assert remaining.child_frame_id == 'mayo_army#1'
+    assert remaining.transform.transform.translation.x == pytest.approx(0.30)
+    assert selector.position_filter_association_reset_total == 2

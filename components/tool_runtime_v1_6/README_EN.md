@@ -28,6 +28,13 @@ helpers used by Hand and Blood.
 - Per-view rosbag/live ROI profiles with mask-overlap workspace filtering
 - Class-independent mask/bbox association and confidence-weighted recent
   class smoothing (three-frame switch confirmation)
+- Control-facing dynamic TF translations use EMA and two-frame relocation
+  confirmation. Raw `ToolPoseArray` samples stay intact for comparison and
+  retuning.
+- A 447-frame CAM4 RGB-D replay using the v5 XLarge best model reduced
+  consecutive non-relocation 3-D step p95 from 16.75 mm to 4.36 mm (74.0%).
+  This is a stability result, not absolute pose accuracy; its support plane
+  and depth scale remain provisional.
 - CAM3 tray and CAM4 Mayo ROI profiles for the 2026-08-25 Arpa RGB views
 - Pose-axis debug overlay: `/perception/cam_4/tool/pose_overlay/compressed`
 

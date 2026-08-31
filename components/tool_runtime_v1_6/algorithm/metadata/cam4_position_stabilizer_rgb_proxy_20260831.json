@@ -1,0 +1,66 @@
+{
+  "schema": "pnu.tool_position_stabilizer_rgb_proxy_evaluation.v1",
+  "limitations": [
+    "RGB-only archive: mask centroids are used instead of RGB-D pose",
+    "meters_per_pixel is a control-team approximation, not calibration",
+    "frozen predictions are not human ground truth"
+  ],
+  "source": {
+    "dataset": "cam4_reference_rosbag_20260814_unlabeled_eval_v1",
+    "prediction_file": "_model_predictions_frozen.coco.json",
+    "prediction_sha256": "94d32e0d6c4ebe75d32446a5aa2a5c469193a2cb592167f5786cd442700e594b",
+    "frame_count": 447,
+    "annotation_count_at_threshold": 1153,
+    "confidence_threshold": 0.3
+  },
+  "proxy_conversion": {
+    "meters_per_pixel": 0.0045,
+    "position": "[mask_centroid_u*m_per_px, mask_centroid_v*m_per_px, 0]",
+    "association": "class_then_left_to_right_ordinal_per_frame"
+  },
+  "filter": {
+    "deadband_m": 0.0,
+    "smoothing_alpha": 0.2,
+    "max_jump_m": 0.04,
+    "relocation_confirmation_frames": 2,
+    "relocation_consistency_m": 0.015,
+    "max_missed_frames": 3
+  },
+  "results": {
+    "all_consecutive_steps_raw": {
+      "count": 972,
+      "zero_count": 0,
+      "median_mm": 4.176606187737058,
+      "p95_mm": 109.61386528818329,
+      "maximum_mm": 905.697485065027
+    },
+    "all_consecutive_steps_filtered": {
+      "count": 972,
+      "zero_count": 41,
+      "median_mm": 0.6954168710655605,
+      "p95_mm": 94.68181431443888,
+      "maximum_mm": 806.3665784681674
+    },
+    "steady_state_steps_raw": {
+      "count": 837,
+      "zero_count": 0,
+      "median_mm": 3.6359086969122703,
+      "p95_mm": 13.644731563241805,
+      "maximum_mm": 37.2547264192047
+    },
+    "steady_state_steps_filtered": {
+      "count": 837,
+      "zero_count": 0,
+      "median_mm": 0.6587032157169017,
+      "p95_mm": 2.8864932690463925,
+      "maximum_mm": 7.4509452838409125
+    },
+    "moderate_step_p95_reduction_percent": 66.95964163053507,
+    "decision_counts": {
+      "EMA_SMOOTHED": 841,
+      "INITIALIZED": 264,
+      "OUTLIER_HELD": 41,
+      "RELOCATION_CONFIRMED": 7
+    }
+  }
+}

@@ -27,6 +27,12 @@ Hand/Blood가 쓰는 depth-to-color helper를 포함한다.
 - rosbag/live 화각별 ROI 프로파일과 mask-overlap ROI 필터
 - class와 무관한 mask/bbox association 및 최근 7-frame confidence-weighted
   class smoothing(3-frame 전환 확인)
+- 제어용 동적 TF 위치에는 EMA와 2-frame relocation 확인을 적용한다.
+  원시 `ToolPoseArray`는 비교·재튜닝을 위해 변경하지 않는다.
+- v5 XLarge best 모델로 수행한 2026-08-14 CAM4 MCAP 447 RGB-D frame
+  replay에서 연속 비-relocation 3D step p95가 16.75 mm에서 4.36 mm로
+  감소했다(74.0%). 이는 안정성 평가이며 support plane/depth scale이
+  provisional이므로 절대 pose 정확도 평가는 아니다.
 - 2026-08-25 Arpa RGB용 CAM3 tray/CAM4 Mayo ROI 프로파일 포함
 - pose-axis 디버그 오버레이: `/perception/cam_4/tool/pose_overlay/compressed`
 

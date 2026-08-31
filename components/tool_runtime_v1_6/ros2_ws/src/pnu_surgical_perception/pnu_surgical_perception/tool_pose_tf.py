@@ -18,6 +18,10 @@ from geometry_msgs.msg import TransformStamped
 
 from surgical_perception_msgs.msg import ToolPose
 
+from pnu_surgical_perception.tool_position_stabilizer import (
+    ToolPositionStabilizer,
+)
+
 
 CONSTRAINED_SE3_PROVENANCE = (
     'position_from_registered_depth; yaw_from_mask_longitudinal_axis; '
@@ -292,6 +296,13 @@ class ToolSpatialTfSelector:
         *,
         max_tools_per_class: int,
         reset_stamp_jump_sec: float,
+        position_stabilization_enabled: bool = False,
+        position_deadband_m: float = 0.0,
+        position_smoothing_alpha: float = 0.20,
+        position_max_jump_m: float = 0.04,
+        position_relocation_confirmation_frames: int = 2,
+        position_relocation_consistency_m: float = 0.015,
+        position_max_missed_frames: int = 3,
     ) -> None:
         if int(max_tools_per_class) < 1:
             raise ValueError('max_tools_per_class must be at least one')
@@ -305,6 +316,17 @@ class ToolSpatialTfSelector:
             round(float(reset_stamp_jump_sec) * 1_000_000_000.0)
         )
         self._last_source_stamp_ns: int | None = None
+        self._position_stabilizer = ToolPositionStabilizer(
+            enabled=position_stabilization_enabled,
+            deadband_m=position_deadband_m,
+            smoothing_alpha=position_smoothing_alpha,
+            max_jump_m=position_max_jump_m,
+            relocation_confirmation_frames=(
+                position_relocation_confirmation_frames
+            ),
+            relocation_consistency_m=position_relocation_consistency_m,
+            max_missed_frames=position_max_missed_frames,
+        )
         self._active_slots: set[str] = set()
         self._seen_slots: set[str] = set()
         self._created_total = 0
@@ -337,10 +359,35 @@ class ToolSpatialTfSelector:
         """Return explicit gate or large source-clock reset count."""
         return self._reset_total
 
+    @property
+    def position_filter_active_count(self) -> int:
+        return self._position_stabilizer.active_count
+
+    @property
+    def position_filter_held_total(self) -> int:
+        return self._position_stabilizer.held_total
+
+    @property
+    def position_filter_smoothed_total(self) -> int:
+        return self._position_stabilizer.smoothed_total
+
+    @property
+    def position_filter_outlier_held_total(self) -> int:
+        return self._position_stabilizer.outlier_held_total
+
+    @property
+    def position_filter_relocation_total(self) -> int:
+        return self._position_stabilizer.relocation_total
+
+    @property
+    def position_filter_association_reset_total(self) -> int:
+        return self._position_stabilizer.association_reset_total
+
     def reset(self) -> None:
         """Forget the current snapshot without reusing persistent identity."""
         self._active_slots.clear()
         self._last_source_stamp_ns = None
+        self._position_stabilizer.reset()
         self._reset_total += 1
 
     def assign(
@@ -367,6 +414,7 @@ class ToolSpatialTfSelector:
             if backwards_ns >= self._reset_stamp_jump_ns:
                 self._active_slots.clear()
                 self._last_source_stamp_ns = None
+                self._position_stabilizer.reset()
                 self._reset_total += 1
             else:
                 self._rejected_total += len(tools)
@@ -382,11 +430,29 @@ class ToolSpatialTfSelector:
             tools,
             horizontal_u_by_instance_id=horizontal_u_by_instance_id,
         )
+        current_slots = set(labels)
+        previous_by_prefix: dict[str, set[str]] = {}
+        current_by_prefix: dict[str, set[str]] = {}
+        for slot in self._active_slots:
+            previous_by_prefix.setdefault(slot.rsplit('#', 1)[0], set()).add(
+                slot
+            )
+        for slot in current_slots:
+            current_by_prefix.setdefault(slot.rsplit('#', 1)[0], set()).add(
+                slot
+            )
+        for prefix in previous_by_prefix.keys() | current_by_prefix.keys():
+            previous_group = previous_by_prefix.get(prefix, set())
+            current_group = current_by_prefix.get(prefix, set())
+            if previous_group != current_group:
+                self._position_stabilizer.reset_keys(
+                    previous_group | current_group
+                )
+
         decisions: list[ToolTfDecision] = []
-        current_slots: set[str] = set()
+        valid_position_slots: set[str] = set()
         for tool, child_frame_id in zip(tools, labels, strict=True):
             ordinal = int(child_frame_id.rsplit('#', 1)[1])
-            current_slots.add(child_frame_id)
             if ordinal > self._max_tools_per_class:
                 decisions.append(
                     ToolTfDecision(
@@ -403,6 +469,15 @@ class ToolSpatialTfSelector:
                 )
                 self._rejected_total += 1
                 continue
+            stabilized = self._position_stabilizer.update(
+                child_frame_id, components.translation
+            )
+            components = _ConstrainedPoseComponents(
+                components.parent_frame_id,
+                stabilized.position_m,
+                components.quaternion_xyzw,
+            )
+            valid_position_slots.add(child_frame_id)
             decisions.append(
                 ToolTfDecision(
                     _transform_from_components(
@@ -412,6 +487,8 @@ class ToolSpatialTfSelector:
                     child_frame_id,
                 )
             )
+
+        self._position_stabilizer.finish_frame(valid_position_slots)
 
         new_slots = current_slots - self._seen_slots
         self._seen_slots.update(new_slots)

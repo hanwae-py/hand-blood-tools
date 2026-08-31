@@ -1,5 +1,23 @@
 # Release notes — v1.6.0-rc1-compatible (2026-08-20)
 
+## 2026-08-31 control-facing position stabilization
+
+- Added spatial-selector-local translation stabilization for dynamic Tool TF:
+  0.20 EMA and two-frame confirmation for jumps above 40 mm. An optional
+  deadband defaults to zero to avoid persistent position bias.
+- Preserved raw `ToolPoseArray` measurements and existing constrained planar
+  4-DoF orientation semantics.
+- Reset affected filter slots when same-class selector cardinality changes, so
+  a left-to-right ordinal reassignment cannot inherit another tool's position.
+- Added ROS-independent unit tests, an RGB rosbag mask-centroid proxy, and a
+  frozen-detection MCAP RGB-D evaluator for repeatable parameter tuning.
+- Replayed all 447 exact-hash CAM4 frames from
+  `multicam_viplab_only_30s_20260814_134233.staging_0.mcap` with the v5
+  XLarge `checkpoint_best_total.pth`. Consecutive non-relocation 3-D step p95
+  decreased from 16.75 mm to 4.36 mm (74.0%). This is an unlabeled stability
+  result, not absolute pose accuracy; the reference support plane and depth
+  scale remain provisional.
+
 - Detector checkpoint: `cam4_rfdetr_seg_small_regular_resume_best.pth`
 - Default confidence threshold 0.30 (was 0.50)
 - Class-agnostic bounding-box NMS enabled by default (IoU 0.80)

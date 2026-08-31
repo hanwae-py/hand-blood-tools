@@ -1,0 +1,119 @@
+{
+  "schema": "pnu.tool_position_stabilizer_mcap_rgbd_evaluation.v1",
+  "interpretation": "unlabeled replay stability evaluation; not absolute pose accuracy",
+  "pose_contract": "PLANAR_4DOF_WITH_NORMAL_PRIOR",
+  "not_unconstrained_6d": true,
+  "limitations": [
+    "frozen segmentation predictions are not human ground truth",
+    "support plane and 0.001 m depth scale remain provisional",
+    "scene motion is not separated from measurement jitter"
+  ],
+  "source": {
+    "bag": "/home/miruware/data_backup/Arpa/multicam_viplab_only_30s_20260814_134233.staging_0.mcap",
+    "camera": "cam_4",
+    "predictions": "/home/miruware/data_backup/Arpa/datasets/evaluation/cam4_rosbag_eval_review_20260814_v1/rosbag_20260814/_model_predictions_frozen.coco.json",
+    "predictions_sha256": "94d32e0d6c4ebe75d32446a5aa2a5c469193a2cb592167f5786cd442700e594b",
+    "prediction_frame_count": 447,
+    "requested_frame_count": 447,
+    "processed_pair_count": 447,
+    "rgb_source_hashes_verified": 447,
+    "unmatched_requested_prediction_frames": 0,
+    "confidence_threshold": 0.3
+  },
+  "rgb_depth": {
+    "pair_delta_ns_max": 63233,
+    "pair_delta_ns_mean": 62868.13199105146,
+    "depth_scale_m_per_unit": 0.001,
+    "depth_scale_verified": false,
+    "aligned_valid_ratio_mean": 0.6492325184874472,
+    "registration_ms_mean": 43.79466795664639,
+    "registration_ms_p95": 50.11867620050907
+  },
+  "calibration": {
+    "version": "reference_mcap_20260814_cam4_provisional",
+    "support_plane_config_version": "reference_mcap_first_frame_blue_plane_provisional",
+    "support_plane_provisional": true
+  },
+  "filter": {
+    "deadband_m": 0.0,
+    "smoothing_alpha": 0.2,
+    "max_jump_m": 0.04,
+    "relocation_confirmation_frames": 2,
+    "relocation_consistency_m": 0.015,
+    "max_missed_frames": 3,
+    "association": "class_then_left_to_right_ordinal_per_frame",
+    "output_scope": "control-facing dynamic named TF translation only"
+  },
+  "pose": {
+    "instance_counts_by_class": {
+      "Adson Forceps": 309,
+      "Army-Navy Retractor": 12,
+      "Bipolar Forceps": 6,
+      "Mosquito": 285,
+      "Scalpel": 10,
+      "Thyroid Retractor": 522
+    },
+    "validity_counts": {
+      "DEGRADED": 76,
+      "VALID": 1068
+    },
+    "invalid_reason_counts": {
+      "ADSON_TIP_TAPER;ENDPOINT_SIGN_LOW_CONFIDENCE": 29,
+      "ADSON_TWO_TIP_WIDTH;OBSERVATION_POINT_FALLBACK": 1,
+      "BIPOLAR_TAPER_FALLBACK;OBSERVATION_POINT_FALLBACK": 3,
+      "ENDPOINT_SIGN_LOW_CONFIDENCE": 39,
+      "ENDPOINT_SIGN_LOW_CONFIDENCE;MASK_LONGITUDINAL_AXIS_AMBIGUOUS": 1,
+      "MASK_LONGITUDINAL_AXIS_AMBIGUOUS": 3
+    },
+    "postprocessing_totals": {
+      "class_confidence_rejected_instances": 0,
+      "class_overrides": 132,
+      "class_switches": 21,
+      "input_instances": 1153,
+      "output_instances": 1144,
+      "raw_class_transitions": 147,
+      "roi_rejected_instances": 9,
+      "tracks_created": 79,
+      "tracks_matched": 1065
+    }
+  },
+  "results": {
+    "all_consecutive_3d_steps_raw": {
+      "count": 794,
+      "zero_count": 35,
+      "median_mm": 2.7458391170758794,
+      "p95_mm": 12.696593449987157,
+      "maximum_mm": 177.17520628439536
+    },
+    "all_consecutive_3d_steps_filtered": {
+      "count": 794,
+      "zero_count": 20,
+      "median_mm": 0.4516692320591041,
+      "p95_mm": 2.443490314868848,
+      "maximum_mm": 179.03959745328024
+    },
+    "steady_state_3d_steps_raw": {
+      "count": 780,
+      "zero_count": 35,
+      "median_mm": 2.667952984235749,
+      "p95_mm": 11.451720441866605,
+      "maximum_mm": 45.01237038774636
+    },
+    "steady_state_3d_steps_filtered": {
+      "count": 780,
+      "zero_count": 9,
+      "median_mm": 0.4546413902650877,
+      "p95_mm": 2.374842544172793,
+      "maximum_mm": 7.754881713974297
+    },
+    "steady_state_p95_reduction_percent": 79.26213308970979,
+    "decision_counts": {
+      "DEADBAND_HELD": 9,
+      "EMA_SMOOTHED": 771,
+      "INITIALIZED": 350,
+      "OUTLIER_HELD": 11,
+      "RELOCATION_CONFIRMED": 3
+    },
+    "association_reset_total": 347
+  }
+}

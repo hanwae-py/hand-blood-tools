@@ -665,6 +665,17 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('tf_track_ttl_sec', 5.0)
         self.declare_parameter('tf_track_max_active_per_class', 8)
         self.declare_parameter('tf_track_reset_stamp_jump_sec', 5.0)
+        self.declare_parameter('tf_position_stabilization_enabled', False)
+        self.declare_parameter('tf_position_deadband_m', 0.0)
+        self.declare_parameter('tf_position_smoothing_alpha', 0.20)
+        self.declare_parameter('tf_position_max_jump_m', 0.04)
+        self.declare_parameter(
+            'tf_position_relocation_confirmation_frames', 2
+        )
+        self.declare_parameter(
+            'tf_position_relocation_consistency_m', 0.015
+        )
+        self.declare_parameter('tf_position_max_missed_frames', 3)
 
     def _read_parameters(self) -> None:
         """Read and fail closed on incomplete metric geometry configuration."""
@@ -697,7 +708,10 @@ class NativeDepthPoseNode(Node):
         self._class_mask_topic_prefix = str(
             value('class_mask_topic_prefix')
         ).strip().rstrip('/')
-        if self._publish_class_masks and not self._class_mask_topic_prefix.startswith('/'):
+        if (
+            self._publish_class_masks
+            and not self._class_mask_topic_prefix.startswith('/')
+        ):
             raise ValueError('class_mask_topic_prefix must be an absolute topic')
         self._class_mask_names = tuple(
             str(item).strip() for item in value('class_mask_names')
@@ -1036,9 +1050,45 @@ class NativeDepthPoseNode(Node):
         self._tf_track_reset_stamp_jump_sec = float(
             value('tf_track_reset_stamp_jump_sec')
         )
+        self._tf_position_stabilization_enabled = bool(
+            value('tf_position_stabilization_enabled')
+        )
+        self._tf_position_deadband_m = float(
+            value('tf_position_deadband_m')
+        )
+        self._tf_position_smoothing_alpha = float(
+            value('tf_position_smoothing_alpha')
+        )
+        self._tf_position_max_jump_m = float(
+            value('tf_position_max_jump_m')
+        )
+        self._tf_position_relocation_confirmation_frames = int(
+            value('tf_position_relocation_confirmation_frames')
+        )
+        self._tf_position_relocation_consistency_m = float(
+            value('tf_position_relocation_consistency_m')
+        )
+        self._tf_position_max_missed_frames = int(
+            value('tf_position_max_missed_frames')
+        )
         self._tf_tracker = ToolSpatialTfSelector(
             max_tools_per_class=self._tf_track_max_active_per_class,
             reset_stamp_jump_sec=self._tf_track_reset_stamp_jump_sec,
+            position_stabilization_enabled=(
+                self._tf_position_stabilization_enabled
+            ),
+            position_deadband_m=self._tf_position_deadband_m,
+            position_smoothing_alpha=self._tf_position_smoothing_alpha,
+            position_max_jump_m=self._tf_position_max_jump_m,
+            position_relocation_confirmation_frames=(
+                self._tf_position_relocation_confirmation_frames
+            ),
+            position_relocation_consistency_m=(
+                self._tf_position_relocation_consistency_m
+            ),
+            position_max_missed_frames=(
+                self._tf_position_max_missed_frames
+            ),
         )
 
         self._additional_status_flags: list[str] = []
@@ -1435,6 +1485,24 @@ class NativeDepthPoseNode(Node):
             'track_expired_total': self._tf_tracker.expired_total,
             'track_rejected_total': self._tf_tracker.rejected_total,
             'track_reset_total': self._tf_tracker.reset_total,
+            'position_filter_active_count': (
+                self._tf_tracker.position_filter_active_count
+            ),
+            'position_filter_held_total': (
+                self._tf_tracker.position_filter_held_total
+            ),
+            'position_filter_smoothed_total': (
+                self._tf_tracker.position_filter_smoothed_total
+            ),
+            'position_filter_outlier_held_total': (
+                self._tf_tracker.position_filter_outlier_held_total
+            ),
+            'position_filter_relocation_total': (
+                self._tf_tracker.position_filter_relocation_total
+            ),
+            'position_filter_association_reset_total': (
+                self._tf_tracker.position_filter_association_reset_total
+            ),
         }
 
     def _output_worker_loop(self) -> None:
@@ -1606,6 +1674,24 @@ class NativeDepthPoseNode(Node):
                         'track_rejected_total'
                     ],
                     'tf_track_reset_total': tf_report['track_reset_total'],
+                    'tf_position_filter_active_count': tf_report[
+                        'position_filter_active_count'
+                    ],
+                    'tf_position_filter_held_total': tf_report[
+                        'position_filter_held_total'
+                    ],
+                    'tf_position_filter_smoothed_total': tf_report[
+                        'position_filter_smoothed_total'
+                    ],
+                    'tf_position_filter_outlier_held_total': tf_report[
+                        'position_filter_outlier_held_total'
+                    ],
+                    'tf_position_filter_relocation_total': tf_report[
+                        'position_filter_relocation_total'
+                    ],
+                    'tf_position_filter_association_reset_total': tf_report[
+                        'position_filter_association_reset_total'
+                    ],
                 })
                 self._diagnostics_publisher.publish(String(
                     data=json.dumps(diagnostics, separators=(',', ':'))
@@ -2013,6 +2099,9 @@ class NativeDepthPoseNode(Node):
                 'tf_workspace_zone': self._workspace_zone,
                 'tf_selector_order_axis': 'camera_image_u_ascending',
                 'tf_orientation_provenance': CONSTRAINED_SE3_PROVENANCE,
+                'tf_position_stabilization_enabled': (
+                    self._tf_position_stabilization_enabled
+                ),
                 'error_code': '',
             }
             source_stamp_ns = (
@@ -2072,6 +2161,12 @@ class NativeDepthPoseNode(Node):
             'track_expired_total': 0,
             'track_rejected_total': 0,
             'track_reset_total': 0,
+            'position_filter_active_count': 0,
+            'position_filter_held_total': 0,
+            'position_filter_smoothed_total': 0,
+            'position_filter_outlier_held_total': 0,
+            'position_filter_relocation_total': 0,
+            'position_filter_association_reset_total': 0,
         }
         if not self._publish_tool_tf or self._tf_broadcaster is None:
             report['skip_reason'] = 'TF_DISABLED'
@@ -2101,6 +2196,24 @@ class NativeDepthPoseNode(Node):
             report['track_expired_total'] = self._tf_tracker.expired_total
             report['track_rejected_total'] = self._tf_tracker.rejected_total
             report['track_reset_total'] = self._tf_tracker.reset_total
+            report['position_filter_active_count'] = (
+                self._tf_tracker.position_filter_active_count
+            )
+            report['position_filter_held_total'] = (
+                self._tf_tracker.position_filter_held_total
+            )
+            report['position_filter_smoothed_total'] = (
+                self._tf_tracker.position_filter_smoothed_total
+            )
+            report['position_filter_outlier_held_total'] = (
+                self._tf_tracker.position_filter_outlier_held_total
+            )
+            report['position_filter_relocation_total'] = (
+                self._tf_tracker.position_filter_relocation_total
+            )
+            report['position_filter_association_reset_total'] = (
+                self._tf_tracker.position_filter_association_reset_total
+            )
         transforms = [
             decision.transform
             for decision in decisions

@@ -1,0 +1,133 @@
+{
+  "schema": "pnu.tool_position_stabilizer_mcap_rgbd_evaluation.v1",
+  "interpretation": "unlabeled replay stability evaluation; not absolute pose accuracy",
+  "pose_contract": "PLANAR_4DOF_WITH_NORMAL_PRIOR",
+  "not_unconstrained_6d": true,
+  "limitations": [
+    "frozen segmentation predictions are not human ground truth",
+    "support plane and 0.001 m depth scale remain provisional",
+    "scene motion is not separated from measurement jitter"
+  ],
+  "source": {
+    "bag": "/home/miruware/data_backup/Arpa/multicam_viplab_only_30s_20260814_134233.staging_0.mcap",
+    "camera": "cam_4",
+    "predictions": "/home/miruware/data_backup/Arpa/tool_position_stability_results_20260831/cam4_v5_best_total_predictions.coco.json",
+    "predictions_sha256": "95796f9e47cdb8d063e472e2d378858aeba01c93b4e1901a082dfa2abd53dd3f",
+    "prediction_checkpoint": "/home/miruware/data_backup/Arpa/training/runs/20260828_xlarge_0825_allreview1058_repeat407_sam2large_ddp4_e8_v5/checkpoint_best_total.pth",
+    "prediction_checkpoint_sha256": "b33b467bd0b24cfa64c0527899fabdff1016cb14739d4b4d3461daf720bc2933",
+    "prediction_model_size": "xlarge",
+    "prediction_optimized": true,
+    "prediction_frame_count": 447,
+    "requested_frame_count": 447,
+    "processed_pair_count": 447,
+    "rgb_source_hashes_verified": 447,
+    "unmatched_requested_prediction_frames": 0,
+    "confidence_threshold": 0.3
+  },
+  "rgb_depth": {
+    "pair_delta_ns_max": 63233,
+    "pair_delta_ns_mean": 62868.13199105146,
+    "depth_scale_m_per_unit": 0.001,
+    "depth_scale_verified": false,
+    "aligned_valid_ratio_mean": 0.6492325184874472,
+    "registration_ms_mean": 35.31158741321873,
+    "registration_ms_p95": 48.00031594932079
+  },
+  "calibration": {
+    "version": "reference_mcap_20260814_cam4_provisional",
+    "support_plane_config_version": "reference_mcap_first_frame_blue_plane_provisional",
+    "support_plane_provisional": true
+  },
+  "filter": {
+    "deadband_m": 0.0,
+    "smoothing_alpha": 0.2,
+    "max_jump_m": 0.04,
+    "relocation_confirmation_frames": 2,
+    "relocation_consistency_m": 0.015,
+    "max_missed_frames": 3,
+    "association": "class_then_left_to_right_ordinal_per_frame",
+    "output_scope": "control-facing dynamic named TF translation only"
+  },
+  "pose": {
+    "instance_counts_by_class": {
+      "Adson Forceps": 495,
+      "Allis Forceps": 14,
+      "Army-Navy Retractor": 50,
+      "Bipolar Forceps": 96,
+      "Mosquito": 549,
+      "Thyroid Retractor": 343
+    },
+    "validity_counts": {
+      "DEGRADED": 225,
+      "VALID": 1322
+    },
+    "invalid_reason_counts": {
+      "ADSON_SHAPE_FALLBACK;ENDPOINT_SIGN_LOW_CONFIDENCE": 6,
+      "ADSON_TIP_TAPER;ENDPOINT_SIGN_LOW_CONFIDENCE": 82,
+      "ADSON_TIP_TAPER;OBSERVATION_POINT_FALLBACK": 2,
+      "ADSON_TWO_PRONG_TIP;OBSERVATION_POINT_FALLBACK": 1,
+      "ADSON_TWO_TIP_WIDTH;OBSERVATION_POINT_FALLBACK": 1,
+      "BIPOLAR_TAPER_FALLBACK;ENDPOINT_SIGN_LOW_CONFIDENCE": 28,
+      "BIPOLAR_TAPER_FALLBACK;ENDPOINT_SIGN_LOW_CONFIDENCE;OBSERVATION_POINT_FALLBACK": 10,
+      "BIPOLAR_TAPER_FALLBACK;OBSERVATION_POINT_FALLBACK": 22,
+      "ENDPOINT_SIGN_LOW_CONFIDENCE": 42,
+      "ENDPOINT_SIGN_LOW_CONFIDENCE;MASK_LONGITUDINAL_AXIS_AMBIGUOUS": 1,
+      "ENDPOINT_SIGN_LOW_CONFIDENCE;OBSERVATION_POINT_FALLBACK": 1,
+      "MASK_LONGITUDINAL_AXIS_AMBIGUOUS": 6,
+      "OBSERVATION_POINT_FALLBACK": 23
+    },
+    "postprocessing_totals": {
+      "class_confidence_rejected_instances": 0,
+      "class_overrides": 213,
+      "class_switches": 46,
+      "input_instances": 1552,
+      "output_instances": 1547,
+      "raw_class_transitions": 222,
+      "roi_rejected_instances": 5,
+      "tracks_created": 86,
+      "tracks_matched": 1461
+    }
+  },
+  "results": {
+    "all_consecutive_3d_steps_raw": {
+      "count": 1078,
+      "zero_count": 88,
+      "median_mm": 2.501448070614432,
+      "p95_mm": 27.3182230186547,
+      "maximum_mm": 198.51326328776298
+    },
+    "all_consecutive_3d_steps_filtered": {
+      "count": 1078,
+      "zero_count": 63,
+      "median_mm": 0.41815317310490185,
+      "p95_mm": 4.857927509598517,
+      "maximum_mm": 121.7904317048678
+    },
+    "steady_state_3d_steps_raw": {
+      "count": 1015,
+      "zero_count": 88,
+      "median_mm": 2.326510467525106,
+      "p95_mm": 16.754614009070764,
+      "maximum_mm": 108.87188012270283
+    },
+    "steady_state_3d_steps_filtered": {
+      "count": 1015,
+      "zero_count": 12,
+      "median_mm": 0.4372415715116039,
+      "p95_mm": 4.362588369460722,
+      "maximum_mm": 7.997606278852421
+    },
+    "steady_state_p95_reduction_percent": 73.9618688493876,
+    "decision_counts": {
+      "DEADBAND_HELD": 12,
+      "EMA_SMOOTHED": 1003,
+      "INITIALIZED": 469,
+      "OUTLIER_HELD": 51,
+      "RELOCATION_CONFIRMED": 12
+    },
+    "association_reset_total": 466
+  },
+  "artifacts": {
+    "comparison_video": "/home/miruware/data_backup/Arpa/tool_position_stability_results_20260831/cam4_v5_best_total_before_after_h264.mp4"
+  }
+}

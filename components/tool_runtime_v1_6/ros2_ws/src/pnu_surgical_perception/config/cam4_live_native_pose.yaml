@@ -142,3 +142,12 @@
     tf_track_ttl_sec: 5.0
     tf_track_max_active_per_class: 8
     tf_track_reset_stamp_jump_sec: 5.0
+    # Control-facing TF translation stabilization. Raw ToolPoseArray samples
+    # remain unchanged for observability and offline tuning.
+    tf_position_stabilization_enabled: true
+    tf_position_deadband_m: 0.0
+    tf_position_smoothing_alpha: 0.20
+    tf_position_max_jump_m: 0.04
+    tf_position_relocation_confirmation_frames: 2
+    tf_position_relocation_consistency_m: 0.015
+    tf_position_max_missed_frames: 3
