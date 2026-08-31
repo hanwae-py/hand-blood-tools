@@ -1,5 +1,5 @@
 [Unit]
-Description=Taskplanner direct five-view recognition overlay viewer
+Description=Taskplanner direct six-view recognition overlay viewer
 Wants=taskplanner-perception-final-overlay.service
 After=graphical-session.target taskplanner-perception-final-overlay.service
 PartOf=graphical-session.target

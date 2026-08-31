@@ -442,14 +442,73 @@ def _quiet_native_stderr():
         os.close(saved_fd)
 
 
-def recognize_frame(frame_bgr, hand_det, mp, ts_ms):
-    """Run the configured MediaPipe VIDEO task exactly once for one RGB frame."""
-    mp_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+def inference_crop_box(frame_shape, region, margin=0.0):
+    """Return a clipped pixel ROI for inference, or ``None`` for full-frame.
+
+    ``region`` remains the public hand-centroid keep box.  The optional margin
+    preserves detector context around that box; results are remapped to the
+    original image grid before any downstream filtering or publication.
+    """
+    height, width = (int(frame_shape[0]), int(frame_shape[1]))
+    if height <= 0 or width <= 0:
+        raise ValueError('frame dimensions must be positive')
+    if region is None:
+        return None
+    x_min, x_max, y_min, y_max = (float(value) for value in region)
+    margin = max(0.0, float(margin))
+    x_min = max(0.0, x_min - margin)
+    x_max = min(1.0, x_max + margin)
+    y_min = max(0.0, y_min - margin)
+    y_max = min(1.0, y_max + margin)
+    if not (x_min < x_max and y_min < y_max):
+        raise ValueError('inference ROI must have positive area')
+    x0 = max(0, min(width - 1, int(np.floor(x_min * width))))
+    x1 = max(x0 + 1, min(width, int(np.ceil(x_max * width))))
+    y0 = max(0, min(height - 1, int(np.floor(y_min * height))))
+    y1 = max(y0 + 1, min(height, int(np.ceil(y_max * height))))
+    if x0 == 0 and y0 == 0 and x1 == width and y1 == height:
+        return None
+    return x0, y0, x1, y1
+
+
+def remap_result_landmarks(result, crop_box, frame_shape):
+    """Map MediaPipe normalized crop landmarks back to the source frame."""
+    if crop_box is None:
+        return result
+    height, width = (int(frame_shape[0]), int(frame_shape[1]))
+    x0, y0, x1, y1 = crop_box
+    scale_x = (x1 - x0) / float(width)
+    scale_y = (y1 - y0) / float(height)
+    offset_x = x0 / float(width)
+    offset_y = y0 / float(height)
+    for landmarks in getattr(result, 'hand_landmarks', None) or ():
+        for landmark in landmarks:
+            landmark.x = offset_x + float(landmark.x) * scale_x
+            landmark.y = offset_y + float(landmark.y) * scale_y
+    return result
+
+
+def recognize_frame(
+    frame_bgr, hand_det, mp, ts_ms, *, inference_region=None,
+    inference_margin=0.0,
+):
+    """Run one MediaPipe VIDEO task, optionally on a padded selection ROI."""
+    crop_box = inference_crop_box(
+        frame_bgr.shape, inference_region, inference_margin)
+    inference_bgr = (
+        frame_bgr
+        if crop_box is None
+        else np.ascontiguousarray(
+            frame_bgr[crop_box[1]:crop_box[3], crop_box[0]:crop_box[2]])
+    )
+    mp_rgb = cv2.cvtColor(inference_bgr, cv2.COLOR_BGR2RGB)
     mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=mp_rgb)
     with _quiet_native_stderr():
         if hasattr(hand_det, 'recognize_for_video'):
-            return hand_det.recognize_for_video(mp_img, ts_ms)
-        return hand_det.detect_for_video(mp_img, ts_ms)
+            result = hand_det.recognize_for_video(mp_img, ts_ms)
+        else:
+            result = hand_det.detect_for_video(mp_img, ts_ms)
+    return remap_result_landmarks(result, crop_box, frame_bgr.shape)
 
 
 def world_landmarks_for_hand(result, hand_index):

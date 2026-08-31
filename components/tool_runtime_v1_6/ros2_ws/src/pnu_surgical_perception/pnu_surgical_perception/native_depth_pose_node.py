@@ -26,7 +26,7 @@ from pnu_surgical_perception.native_depth_sync import (
 )
 from pnu_surgical_perception.pose_message_mapping import (
     to_observation_array_from_detections,
-    to_pose_and_observation_arrays,
+    to_pose_array_from_result,
 )
 from pnu_surgical_perception.tool_pose_tf import (
     CONSTRAINED_SE3_PROVENANCE,
@@ -558,6 +558,7 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('maximum_stamp_delta_ns', 1_000_000)
         self.declare_parameter('sync_queue_size', 8)
         self.declare_parameter('latest_frame_only', True)
+        self.declare_parameter('opencv_num_threads', 2)
         self.declare_parameter('input_freshness_sec', 2.0)
         self.declare_parameter('processing_enabled', True)
         self.declare_parameter('processing_gate_topic', '')
@@ -577,6 +578,9 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('adson_forceps_confidence_threshold', -1.0)
         self.declare_parameter('enable_class_agnostic_nms', False)
         self.declare_parameter('class_agnostic_nms_iou', 0.8)
+        self.declare_parameter('mask_component_cleanup_enabled', True)
+        self.declare_parameter('mask_component_minimum_area_px', 16)
+        self.declare_parameter('mask_component_minimum_area_ratio', 0.005)
         self.declare_parameter('workspace_roi_enabled', False)
         self.declare_parameter(
             'workspace_roi_polygon_norm_xy',
@@ -733,6 +737,11 @@ class NativeDepthPoseNode(Node):
         self._maximum_stamp_delta_ns = int(value('maximum_stamp_delta_ns'))
         self._sync_queue_size = int(value('sync_queue_size'))
         self._latest_frame_only = bool(value('latest_frame_only'))
+        self._opencv_num_threads = int(value('opencv_num_threads'))
+        if not 1 <= self._opencv_num_threads <= 8:
+            raise ValueError('opencv_num_threads must be in [1, 8]')
+        cv2.setUseOptimized(True)
+        cv2.setNumThreads(self._opencv_num_threads)
         self._input_freshness_sec = float(value('input_freshness_sec'))
         self._processing_enabled = bool(value('processing_enabled'))
         self._processing_gate_topic = str(value('processing_gate_topic')).strip()
@@ -800,6 +809,21 @@ class NativeDepthPoseNode(Node):
         self._class_agnostic_nms_iou = float(
             value('class_agnostic_nms_iou')
         )
+        self._mask_component_cleanup_enabled = bool(
+            value('mask_component_cleanup_enabled')
+        )
+        self._mask_component_minimum_area_px = int(
+            value('mask_component_minimum_area_px')
+        )
+        self._mask_component_minimum_area_ratio = float(
+            value('mask_component_minimum_area_ratio')
+        )
+        if self._mask_component_minimum_area_px < 1:
+            raise ValueError('mask_component_minimum_area_px must be positive')
+        if not 0.0 <= self._mask_component_minimum_area_ratio <= 1.0:
+            raise ValueError(
+                'mask_component_minimum_area_ratio must be in [0, 1]'
+            )
         self._workspace_roi_enabled = bool(value('workspace_roi_enabled'))
         self._workspace_roi_polygon_norm_xy = tuple(
             float(item) for item in value('workspace_roi_polygon_norm_xy')
@@ -1209,6 +1233,7 @@ class NativeDepthPoseNode(Node):
             PlanarPoseConfig,
             PlanarPoseEstimator,
             RigidTransform,
+            SmallComponentCleanupConfig,
             SupportPlane,
             SurgicalToolAlgorithm,
             SurgicalToolDetector,
@@ -1249,6 +1274,13 @@ class NativeDepthPoseNode(Node):
                     ),)
                     if self._adson_forceps_confidence_threshold >= 0.0
                     else ()
+                ),
+                small_component_cleanup=SmallComponentCleanupConfig(
+                    enabled=self._mask_component_cleanup_enabled,
+                    minimum_area_px=self._mask_component_minimum_area_px,
+                    minimum_area_ratio=(
+                        self._mask_component_minimum_area_ratio
+                    ),
                 ),
                 workspace_roi=WorkspaceRoiConfig(
                     enabled=self._workspace_roi_enabled,
@@ -1412,29 +1444,78 @@ class NativeDepthPoseNode(Node):
             if bundle is None or self._stopping:
                 return
             output_started = time.perf_counter()
+            output_cpu_started = time.thread_time()
             queue_wait_ms = (
                 output_started - bundle.queued_monotonic
             ) * 1000.0
             try:
+                pose_publish_ms = 0.0
+                pose_publish_cpu_ms = 0.0
+                pose_publish_completed = None
+                tf_publish_ms = 0.0
+                tf_publish_cpu_ms = 0.0
                 if bundle.pose_array is not None:
+                    stage_started = time.perf_counter()
+                    stage_cpu_started = time.thread_time()
                     self._pose_publisher.publish(bundle.pose_array)
+                    pose_publish_ms = (
+                        time.perf_counter() - stage_started
+                    ) * 1000.0
+                    pose_publish_cpu_ms = (
+                        time.thread_time() - stage_cpu_started
+                    ) * 1000.0
+                    pose_publish_completed = time.perf_counter()
+                    stage_started = time.perf_counter()
+                    stage_cpu_started = time.thread_time()
                     tf_report = self._publish_constrained_tool_tf(
                         bundle.pose_array,
                         selector_u_by_instance_id=(
                             bundle.selector_u_by_instance_id
                         ),
                     )
+                    tf_publish_ms = (
+                        time.perf_counter() - stage_started
+                    ) * 1000.0
+                    tf_publish_cpu_ms = (
+                        time.thread_time() - stage_cpu_started
+                    ) * 1000.0
                 else:
                     tf_report = self._empty_tf_report()
 
+                stage_started = time.perf_counter()
+                stage_cpu_started = time.thread_time()
                 self._observation_publisher.publish(
                     bundle.observation_array
                 )
+                observation_publish_ms = (
+                    time.perf_counter() - stage_started
+                ) * 1000.0
+                observation_publish_cpu_ms = (
+                    time.thread_time() - stage_cpu_started
+                ) * 1000.0
+                observation_publish_completed = time.perf_counter()
+                mask_publish_started = time.perf_counter()
+                mask_publish_cpu_started = time.thread_time()
+                mask_publish_ms_by_class: dict[str, float] = {}
                 for class_name, message in bundle.class_mask_messages:
+                    stage_started = time.perf_counter()
                     self._class_mask_publishers[class_name].publish(message)
+                    mask_publish_ms_by_class[class_name] = (
+                        time.perf_counter() - stage_started
+                    ) * 1000.0
+                class_masks_publish_ms = (
+                    time.perf_counter() - mask_publish_started
+                ) * 1000.0
+                class_masks_publish_cpu_ms = (
+                    time.thread_time() - mask_publish_cpu_started
+                ) * 1000.0
+                masks_publish_completed = time.perf_counter()
 
                 publish_ms = (
                     time.perf_counter() - output_started
+                ) * 1000.0
+                publish_thread_cpu_ms = (
+                    time.thread_time() - output_cpu_started
                 ) * 1000.0
                 latency_ms = (
                     time.perf_counter() - bundle.process_started
@@ -1463,6 +1544,41 @@ class NativeDepthPoseNode(Node):
                     'output_execution': 'async_latest_only_bundle',
                     'output_bundle_queue_wait_ms': queue_wait_ms,
                     'output_bundle_publish_ms': publish_ms,
+                    'output_bundle_publish_thread_cpu_ms': (
+                        publish_thread_cpu_ms
+                    ),
+                    'output_pose_publish_ms': pose_publish_ms,
+                    'output_pose_publish_thread_cpu_ms': pose_publish_cpu_ms,
+                    'output_pose_end_to_end_ms': (
+                        (pose_publish_completed - bundle.process_started)
+                        * 1000.0
+                        if pose_publish_completed is not None
+                        else None
+                    ),
+                    'output_tf_publish_ms': tf_publish_ms,
+                    'output_tf_publish_thread_cpu_ms': tf_publish_cpu_ms,
+                    'output_observation_publish_ms': observation_publish_ms,
+                    'output_observation_publish_thread_cpu_ms': (
+                        observation_publish_cpu_ms
+                    ),
+                    'output_observation_end_to_end_ms': (
+                        observation_publish_completed
+                        - bundle.process_started
+                    ) * 1000.0,
+                    'output_class_masks_publish_ms': class_masks_publish_ms,
+                    'output_class_masks_publish_thread_cpu_ms': (
+                        class_masks_publish_cpu_ms
+                    ),
+                    'output_class_mask_publish_ms_by_class': (
+                        mask_publish_ms_by_class
+                    ),
+                    'output_class_masks_end_to_end_ms': (
+                        masks_publish_completed - bundle.process_started
+                    ) * 1000.0,
+                    'output_class_mask_payload_bytes': sum(
+                        len(message.data)
+                        for _class_name, message in bundle.class_mask_messages
+                    ),
                     'output_bundle_latency_ms': latency_ms,
                     'output_bundle_source_age_ms': source_age_ms,
                     'output_bundle_mask_count': len(
@@ -1647,23 +1763,34 @@ class NativeDepthPoseNode(Node):
     def _process_frame(self, pending: PendingPoseFrame) -> None:
         """Detect on RGB always; sample depth and estimate pose only if present."""
         started = time.perf_counter()
+        process_cpu_started = time.thread_time()
         try:
+            decode_started = time.perf_counter()
+            decode_cpu_started = time.thread_time()
             rgb = decode_rgb(pending.rgb)
-            decode_ms = (time.perf_counter() - started) * 1000.0
+            decode_ms = (time.perf_counter() - decode_started) * 1000.0
+            decode_cpu_ms = (
+                time.thread_time() - decode_cpu_started
+            ) * 1000.0
             with self._condition:
                 self._sequence += 1
                 sequence = self._sequence
             detect_started = time.perf_counter()
+            detect_cpu_started = time.thread_time()
             detections = self._algorithm.detect(
                 rgb, 'BGR', self._inference_confidence_threshold
             )
             detect_ms = (time.perf_counter() - detect_started) * 1000.0
+            detect_cpu_ms = (
+                time.thread_time() - detect_cpu_started
+            ) * 1000.0
 
             aligned_depth_m = None
             registration_ms = 0.0
             pose_result = None
             pose_camera = None
             inference_pose_ms = 0.0
+            inference_pose_cpu_ms = 0.0
             with self._condition:
                 extrinsics_ready = bool(
                     not self._depth_aligned_to_color
@@ -1715,6 +1842,7 @@ class NativeDepthPoseNode(Node):
                 ) * 1000.0
                 if aligned_depth_m is not None and pose_camera is not None:
                     pose_started = time.perf_counter()
+                    pose_cpu_started = time.thread_time()
                     pose_result = self._algorithm.pose_estimator.estimate(
                         detections,
                         aligned_depth_m,
@@ -1726,7 +1854,11 @@ class NativeDepthPoseNode(Node):
                     inference_pose_ms = (
                         time.perf_counter() - pose_started
                     ) * 1000.0
+                    inference_pose_cpu_ms = (
+                        time.thread_time() - pose_cpu_started
+                    ) * 1000.0
 
+            observation_build_started = time.perf_counter()
             observation_array = to_observation_array_from_detections(
                 detections=detections,
                 header=pending.rgb.header,
@@ -1734,6 +1866,10 @@ class NativeDepthPoseNode(Node):
                 view=self._view,
                 aligned_depth_m=aligned_depth_m,
             )
+            observation_build_ms = (
+                time.perf_counter() - observation_build_started
+            ) * 1000.0
+            mask_message_build_started = time.perf_counter()
             mask_messages = (
                 class_mask_messages(
                     detections,
@@ -1744,6 +1880,9 @@ class NativeDepthPoseNode(Node):
                 if self._publish_class_masks
                 else ()
             )
+            mask_message_build_ms = (
+                time.perf_counter() - mask_message_build_started
+            ) * 1000.0
             selector_labels = spatial_tool_child_frames(
                 self._workspace_zone, list(observation_array.instances)
             )
@@ -1754,8 +1893,10 @@ class NativeDepthPoseNode(Node):
 
             valid_count = 0
             pose_array = None
+            pose_message_build_ms = 0.0
             if pose_result is not None:
-                pose_array, _unused = to_pose_and_observation_arrays(
+                pose_message_build_started = time.perf_counter()
+                pose_array = to_pose_array_from_result(
                     result=pose_result,
                     header=pending.rgb.header,
                     sequence=sequence,
@@ -1764,6 +1905,9 @@ class NativeDepthPoseNode(Node):
                     additional_status_flags=tuple(self._additional_status_flags),
                     degrade_for_additional_flags=True,
                 )
+                pose_message_build_ms = (
+                    time.perf_counter() - pose_message_build_started
+                ) * 1000.0
                 valid_count = sum(
                     item.validity == ToolPose.VALIDITY_VALID
                     for item in pose_array.tools
@@ -1782,6 +1926,9 @@ class NativeDepthPoseNode(Node):
             )
 
             total_ms = (time.perf_counter() - started) * 1000.0
+            process_thread_cpu_ms = (
+                time.thread_time() - process_cpu_started
+            ) * 1000.0
             diagnostics = {
                 'schema': 'pnu.native_depth_tool_pose_diagnostics.v1',
                 'view': self._view,
@@ -1798,7 +1945,9 @@ class NativeDepthPoseNode(Node):
                     pending.extrinsics_revision
                 ),
                 'decode_latency_ms': decode_ms,
+                'decode_thread_cpu_ms': decode_cpu_ms,
                 'detect_latency_ms': detect_ms,
+                'detect_thread_cpu_ms': detect_cpu_ms,
                 'detector_backend': self._detector.runtime_backend,
                 'detector_runtime': dict(
                     self._detector.last_runtime_diagnostics
@@ -1819,8 +1968,19 @@ class NativeDepthPoseNode(Node):
                     else 0.0
                 ),
                 'inference_pose_latency_ms': inference_pose_ms,
+                'inference_pose_thread_cpu_ms': inference_pose_cpu_ms,
+                'pose_estimator_runtime': dict(
+                    self._algorithm.pose_estimator.last_runtime_diagnostics
+                    if pose_result is not None
+                    else {}
+                ),
+                'observation_message_build_ms': observation_build_ms,
+                'class_mask_message_build_ms': mask_message_build_ms,
+                'pose_message_build_ms': pose_message_build_ms,
+                'process_thread_cpu_ms': process_thread_cpu_ms,
                 'total_latency_ms': total_ms,
                 'overlay_execution': 'async_latest_only',
+                'opencv_num_threads': cv2.getNumThreads(),
                 'instance_count': len(detections.instances),
                 'valid_pose_count': valid_count,
                 'class_mask_topics': list(self._class_mask_topics.values()),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 
@@ -131,16 +132,24 @@ class TensorRtPlanRunner:
         # because this runner owns one execution context and is called by one
         # batch worker at a time.
         self._stream = torch.cuda.Stream()
+        self._input_started = torch.cuda.Event(enable_timing=True)
+        self._input_completed = torch.cuda.Event(enable_timing=True)
+        self._execution_started = torch.cuda.Event(enable_timing=True)
+        self._execution_completed = torch.cuda.Event(enable_timing=True)
+        self.last_runtime_diagnostics: dict[str, float] = {}
 
     def __call__(self, input_tensor: Any) -> tuple[Any, ...]:
         torch = self._torch
+        runner_started = time.perf_counter()
         upstream_stream = torch.cuda.current_stream()
         self._stream.wait_stream(upstream_stream)
         with torch.cuda.stream(self._stream):
+            self._input_started.record(self._stream)
             frame_batch = input_tensor.to(
                 device="cuda",
                 dtype=self._torch_dtypes[self.input_name],
             ).contiguous()
+            self._input_completed.record(self._stream)
             if not self._context.set_input_shape(
                 self.input_name, tuple(frame_batch.shape)
             ):
@@ -171,9 +180,26 @@ class TensorRtPlanRunner:
             )
             for name, output in zip(self.output_names, outputs, strict=True):
                 self._context.set_tensor_address(name, int(output.data_ptr()))
+            self._execution_started.record(self._stream)
             if not self._context.execute_async_v3(self._stream.cuda_stream):
                 raise RuntimeError("TensorRT execution failed")
+            self._execution_completed.record(self._stream)
         # TensorRT uses external pointers unknown to the PyTorch allocator.
         # Synchronizing here prevents input storage reuse before execution ends.
         self._stream.synchronize()
+        runner_wall_ms = (time.perf_counter() - runner_started) * 1000.0
+        input_gpu_ms = float(
+            self._input_started.elapsed_time(self._input_completed)
+        )
+        execution_gpu_ms = float(
+            self._execution_started.elapsed_time(self._execution_completed)
+        )
+        self.last_runtime_diagnostics = {
+            "runner_wall_ms": runner_wall_ms,
+            "input_prepare_gpu_ms": input_gpu_ms,
+            "trt_execute_gpu_ms": execution_gpu_ms,
+            "runner_unattributed_wall_ms": max(
+                0.0, runner_wall_ms - input_gpu_ms - execution_gpu_ms
+            ),
+        }
         return tuple(outputs)

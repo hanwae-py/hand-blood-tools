@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from pnu_surgical_perception.perception_contract import (
-    mask_to_compressed_coco_rle,
+    mask_to_compressed_coco_rle_with_geometry,
 )
 
 from surgical_perception_msgs.msg import (
@@ -152,6 +152,10 @@ def _to_pose(
 
 def _to_observation(item: Any) -> ToolObservation2D:
     """Build one typed 2-D evidence message."""
+    segmentation, geometry = mask_to_compressed_coco_rle_with_geometry(
+        item.mask,
+        tuple(float(value) for value in item.bbox_xyxy_px),
+    )
     message = ToolObservation2D()
     message.frame_local_instance_id = int(item.frame_local_instance_id)
     message.canonical_class_id = int(item.canonical_class_id)
@@ -160,8 +164,14 @@ def _to_observation(item: Any) -> ToolObservation2D:
     message.class_confidence = float(item.class_confidence)
     message.segmentation_confidence = float(item.class_confidence)
     message.bbox_xyxy_px = list(item.bbox_xyxy_px)
-    message.mask_bbox_xyxy_px = _mask_bbox(item.mask)
-    message.mask_area_px = int(np.count_nonzero(item.mask))
+    message.mask_bbox_xyxy_px = (
+        [float(value) for value in geometry['bbox_xyxy_px']]
+        if geometry is not None
+        else [0.0, 0.0, 0.0, 0.0]
+    )
+    message.mask_area_px = (
+        int(geometry['area_px']) if geometry is not None else 0
+    )
     point_valid, inside_mask, depth_valid = _point_flags(item)
     if point_valid:
         message.observation_point_uv_px = list(item.observation_point_uv_px)
@@ -183,7 +193,7 @@ def _to_observation(item: Any) -> ToolObservation2D:
     )
     message.mask_height = int(item.mask.shape[0])
     message.mask_width = int(item.mask.shape[1])
-    message.mask_counts = mask_to_compressed_coco_rle(item.mask)['counts']
+    message.mask_counts = segmentation['counts']
     return message
 
 
@@ -197,6 +207,45 @@ def to_pose_and_observation_arrays(
     degrade_for_additional_flags: bool = False,
 ) -> tuple[ToolPoseArray, ToolObservation2DArray]:
     """Convert one algorithm frame result to the two authoritative arrays."""
+    observation_id = f'{view}:{sequence}'
+    pose_array = to_pose_array_from_result(
+        result=result,
+        header=header,
+        sequence=sequence,
+        view=view,
+        support_plane=support_plane,
+        additional_status_flags=additional_status_flags,
+        degrade_for_additional_flags=degrade_for_additional_flags,
+    )
+
+    observation_array = ToolObservation2DArray()
+    observation_array.header = header
+    observation_array.sequence = int(sequence)
+    observation_array.schema_version = OBSERVATION_SCHEMA
+    observation_array.observation_id = observation_id
+    observation_array.view = view
+    if result.instances:
+        height, width = result.instances[0].mask.shape
+        observation_array.image_width = int(width)
+        observation_array.image_height = int(height)
+    observation_array.model_version = str(result.model_version)
+    observation_array.ontology_version = str(result.ontology_version)
+    observation_array.instances = [
+        _to_observation(item) for item in result.instances
+    ]
+    return pose_array, observation_array
+
+
+def to_pose_array_from_result(
+    result: Any,
+    header: Any,
+    sequence: int,
+    view: str,
+    support_plane: Any,
+    additional_status_flags: tuple[str, ...] = (),
+    degrade_for_additional_flags: bool = False,
+) -> ToolPoseArray:
+    """Build only the pose array when 2-D observations already exist."""
     observation_id = f'{view}:{sequence}'
     pose_array = ToolPoseArray()
     pose_array.header = header
@@ -217,23 +266,7 @@ def to_pose_and_observation_arrays(
         )
         for item in result.instances
     ]
-
-    observation_array = ToolObservation2DArray()
-    observation_array.header = header
-    observation_array.sequence = int(sequence)
-    observation_array.schema_version = OBSERVATION_SCHEMA
-    observation_array.observation_id = observation_id
-    observation_array.view = view
-    if result.instances:
-        height, width = result.instances[0].mask.shape
-        observation_array.image_width = int(width)
-        observation_array.image_height = int(height)
-    observation_array.model_version = str(result.model_version)
-    observation_array.ontology_version = str(result.ontology_version)
-    observation_array.instances = [
-        _to_observation(item) for item in result.instances
-    ]
-    return pose_array, observation_array
+    return pose_array
 
 
 def to_observation_array_from_detections(
@@ -267,7 +300,11 @@ def to_observation_array_from_detections(
 
     instances = []
     for item in detections.instances:
-        origin = longitudinal_origin_uv(item.mask, item.class_name)
+        origin = longitudinal_origin_uv(
+            item.mask,
+            item.class_name,
+            item.bbox_xyxy_px,
+        )
         depth_m = None
         if origin is not None and aligned_depth_m is not None:
             depth_m = sample_depth_at_uv(aligned_depth_m, origin)

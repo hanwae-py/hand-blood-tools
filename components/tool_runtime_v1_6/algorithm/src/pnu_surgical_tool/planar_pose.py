@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+import time
 from typing import Any
 
 import cv2
@@ -38,6 +39,26 @@ WIRE_CONTEXT_MINIMUM_CURVATURE_FRACTION = 0.025
 WIRE_CONTEXT_MINIMUM_SCORE = 0.60
 WIRE_CONTEXT_MINIMUM_SCORE_ADVANTAGE = 0.22
 ADSON_PRONG_TERMINAL_FRACTION = 0.18
+
+
+def _mask_coordinates_in_bbox(
+    mask: np.ndarray,
+    bbox_xyxy_px: tuple[float, float, float, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Scan the detector bbox instead of repeatedly scanning a full HD mask."""
+    height, width = mask.shape
+    if not all(math.isfinite(value) for value in bbox_xyxy_px):
+        return np.nonzero(mask)
+    x0 = max(0, int(math.floor(min(bbox_xyxy_px[0], bbox_xyxy_px[2]))) - 1)
+    y0 = max(0, int(math.floor(min(bbox_xyxy_px[1], bbox_xyxy_px[3]))) - 1)
+    x1 = min(width, int(math.ceil(max(bbox_xyxy_px[0], bbox_xyxy_px[2]))) + 1)
+    y1 = min(height, int(math.ceil(max(bbox_xyxy_px[1], bbox_xyxy_px[3]))) + 1)
+    if x0 >= x1 or y0 >= y1:
+        return np.nonzero(mask)
+    crop_ys, crop_xs = np.nonzero(mask[y0:y1, x0:x1])
+    if crop_xs.size == 0:
+        return np.nonzero(mask)
+    return crop_ys + y0, crop_xs + x0
 ADSON_PRONG_MINIMUM_BALANCE = 0.35
 ADSON_PRONG_MINIMUM_ADVANTAGE = 0.25
 ADSON_FACE_ON_TERMINAL_FRACTION = 0.22
@@ -51,6 +72,7 @@ def _external_wire_handle_evidence(
     direction_uv: np.ndarray,
     low: float,
     high: float,
+    mask_coordinates: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     """Find a clear thin continuation outside either endpoint.
 
@@ -63,28 +85,60 @@ def _external_wire_handle_evidence(
     """
     span = max(float(high - low), 1e-6)
     perpendicular = np.array((-direction_uv[1], direction_uv[0]))
-    mask_u8 = mask.astype(np.uint8)
-    exclusion = cv2.dilate(mask_u8, np.ones((3, 3), dtype=np.uint8)).astype(bool)
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
     height, width = mask.shape
+    if mask_coordinates is None:
+        ys, xs = np.nonzero(mask)
+    else:
+        ys, xs = mask_coordinates
     transverse_center = float(
-        np.median((np.column_stack(np.nonzero(mask)[::-1]) - mean_uv) @ perpendicular)
+        np.median((np.column_stack((xs, ys)) - mean_uv) @ perpendicular)
     )
+    outward_length = WIRE_CONTEXT_OUTWARD_LENGTH_FRACTION * span
+    half_width = WIRE_CONTEXT_HALF_WIDTH_FRACTION * span
 
-    def endpoint_score(end_projection: float, outward_sign: float) -> dict[str, float]:
+    def endpoint_region(
+        end_projection: float,
+        outward_sign: float,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
         endpoint = (
             mean_uv
             + end_projection * direction_uv
             + transverse_center * perpendicular
         )
         outward = outward_sign * direction_uv
-        outward_length = WIRE_CONTEXT_OUTWARD_LENGTH_FRACTION * span
-        half_width = WIRE_CONTEXT_HALF_WIDTH_FRACTION * span
         radius = int(math.ceil(math.hypot(outward_length, half_width))) + 3
         x0 = max(0, int(math.floor(endpoint[0])) - radius)
         x1 = min(width, int(math.ceil(endpoint[0])) + radius + 1)
         y0 = max(0, int(math.floor(endpoint[1])) - radius)
         y1 = min(height, int(math.ceil(endpoint[1])) + radius + 1)
+        return endpoint, outward, (x0, y0, x1, y1)
+
+    regions = (
+        endpoint_region(float(low), -1.0),
+        endpoint_region(float(high), 1.0),
+    )
+    union_x0 = min(region[2][0] for region in regions)
+    union_y0 = min(region[2][1] for region in regions)
+    union_x1 = max(region[2][2] for region in regions)
+    union_y1 = max(region[2][3] for region in regions)
+    lab_union = cv2.cvtColor(
+        image_bgr[union_y0:union_y1, union_x0:union_x1],
+        cv2.COLOR_BGR2LAB,
+    ).astype(np.float32)
+    exclusion_union = _dilated_mask_crop(
+        mask,
+        union_x0,
+        union_y0,
+        union_x1,
+        union_y1,
+    )
+
+    def endpoint_score(
+        endpoint: np.ndarray,
+        outward: np.ndarray,
+        bounds: tuple[int, int, int, int],
+    ) -> dict[str, float]:
+        x0, y0, x1, y1 = bounds
         if x1 - x0 < 5 or y1 - y0 < 5:
             return {"score": 0.0, "extent": 0.0, "radius_p90": math.inf}
 
@@ -101,15 +155,20 @@ def _external_wire_handle_evidence(
             & (longitudinal <= outward_length)
             & (np.abs(transverse) <= np.minimum(allowed_half_width, half_width))
         )
-        excluded = exclusion[y0:y1, x0:x1]
+        union_slice = (
+            slice(y0 - union_y0, y1 - union_y0),
+            slice(x0 - union_x0, x1 - union_x0),
+        )
+        excluded = exclusion_union[union_slice]
         background_region = corridor & ~excluded
-        background_values = lab[y0:y1, x0:x1][background_region]
+        lab_crop = lab_union[union_slice]
+        background_values = lab_crop[background_region]
         if len(background_values) < 40:
             return {"score": 0.0, "extent": 0.0, "radius_p90": math.inf}
 
         background = np.median(background_values, axis=0)
         colour_distance = np.linalg.norm(
-            lab[y0:y1, x0:x1] - background.reshape(1, 1, 3),
+            lab_crop - background.reshape(1, 1, 3),
             axis=2,
         )
         median_distance = float(np.median(colour_distance[background_region]))
@@ -219,8 +278,8 @@ def _external_wire_handle_evidence(
                 }
         return best
 
-    low_result = endpoint_score(float(low), -1.0)
-    high_result = endpoint_score(float(high), 1.0)
+    low_result = endpoint_score(*regions[0])
+    high_result = endpoint_score(*regions[1])
     low_score = float(low_result["score"])
     high_score = float(high_result["score"])
     best_score = max(low_score, high_score)
@@ -237,6 +296,33 @@ def _external_wire_handle_evidence(
         "high_extent": float(high_result["extent"]),
         "confidence": best_score,
     }
+
+
+def _dilated_mask_crop(
+    mask: np.ndarray,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+) -> np.ndarray:
+    """Return an exact 3x3-dilated slice without dilating the full HD mask."""
+    height, width = mask.shape
+    expanded_x0 = max(0, int(x0) - 1)
+    expanded_y0 = max(0, int(y0) - 1)
+    expanded_x1 = min(width, int(x1) + 1)
+    expanded_y1 = min(height, int(y1) + 1)
+    expanded = np.ascontiguousarray(
+        mask[expanded_y0:expanded_y1, expanded_x0:expanded_x1],
+        dtype=np.uint8,
+    )
+    dilated = cv2.dilate(
+        expanded,
+        np.ones((3, 3), dtype=np.uint8),
+    ).astype(bool)
+    return dilated[
+        int(y0) - expanded_y0:int(y1) - expanded_y0,
+        int(x0) - expanded_x0:int(x1) - expanded_x0,
+    ]
 
 
 def _terminal_taper_scores(
@@ -334,9 +420,13 @@ def _adson_face_on_width_evidence(
     direction_uv: np.ndarray,
     low: float,
     high: float,
+    mask_coordinates: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     """Detect the expanded silhouette of merged face-on Adson jaws."""
-    ys, xs = np.nonzero(mask)
+    if mask_coordinates is None:
+        ys, xs = np.nonzero(mask)
+    else:
+        ys, xs = mask_coordinates
     uv = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
     centered = uv - mean_uv
     projection = centered @ direction_uv
@@ -378,8 +468,12 @@ def _pca_endpoints(
     mask: np.ndarray,
     sign_policy: str,
     image_bgr: np.ndarray | None = None,
+    mask_coordinates: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
-    ys, xs = np.where(mask)
+    if mask_coordinates is None:
+        ys, xs = np.where(mask)
+    else:
+        ys, xs = mask_coordinates
     if len(xs) < 20:
         raise ValueError("MASK_TOO_SMALL")
     uv = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
@@ -460,6 +554,7 @@ def _pca_endpoints(
                     direction,
                     float(low),
                     float(high),
+                    mask_coordinates=mask_coordinates,
                 )
                 if sign_policy == "adson_face_on_shape"
                 else None
@@ -507,6 +602,7 @@ def _pca_endpoints(
                 direction,
                 float(low),
                 float(high),
+                mask_coordinates=mask_coordinates,
             )
             if sign_policy == "bovie_tip_taper" and image_bgr is not None
             else None
@@ -570,11 +666,22 @@ def _pca_endpoints(
 
 
 def longitudinal_origin_uv(
-    mask: np.ndarray, class_name: str
+    mask: np.ndarray,
+    class_name: str,
+    bbox_xyxy_px: tuple[float, float, float, float] | None = None,
 ) -> np.ndarray | None:
     """Return the mask longitudinal-axis midpoint, or None if the mask is unusable."""
     try:
-        return _pca_endpoints(mask, _sign_policy(class_name))["origin_uv"]
+        coordinates = (
+            _mask_coordinates_in_bbox(mask, bbox_xyxy_px)
+            if bbox_xyxy_px is not None
+            else None
+        )
+        return _pca_endpoints(
+            mask,
+            _sign_policy(class_name),
+            mask_coordinates=coordinates,
+        )["origin_uv"]
     except ValueError:
         return None
 
@@ -600,8 +707,12 @@ def _select_reference_pixel(
     longitudinal_axis_uv: np.ndarray,
     axis_length_px: float,
     depth_m: np.ndarray,
+    mask_coordinates: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
-    ys, xs = np.where(mask)
+    if mask_coordinates is None:
+        ys, xs = np.where(mask)
+    else:
+        ys, xs = mask_coordinates
     x0, x1 = int(xs.min()), int(xs.max()) + 1
     y0, y1 = int(ys.min()), int(ys.max()) + 1
     distance_crop = cv2.distanceTransform(
@@ -724,6 +835,10 @@ class PlanarPoseConfig:
 class PlanarPoseEstimator:
     def __init__(self, config: PlanarPoseConfig | None = None) -> None:
         self.config = config or PlanarPoseConfig()
+        self.last_runtime_diagnostics: dict[str, Any] = {
+            "instance_count": 0,
+            "instance_latency_ms": [],
+        }
 
     def _endpoint_sign_policy(self, class_name: str) -> str:
         if self.config.positive_y_image_direction == "class_based":
@@ -759,16 +874,38 @@ class PlanarPoseEstimator:
             detections.image_height,
         ):
             raise ValueError("camera calibration resolution does not match detections")
-        rows = [
-            self._estimate_instance(
+        rows: list[ToolInstanceResult] = []
+        instance_diagnostics: list[dict[str, Any]] = []
+        for instance in detections.instances:
+            instance_started = time.perf_counter()
+            result = self._estimate_instance(
                 instance,
                 depth,
                 camera,
                 support_plane,
                 image_bgr,
             )
-            for instance in detections.instances
-        ]
+            instance_latency_ms = (
+                time.perf_counter() - instance_started
+            ) * 1000.0
+            rows.append(result)
+            instance_diagnostics.append({
+                "frame_local_instance_id": instance.frame_local_instance_id,
+                "class_name": instance.class_name,
+                "latency_ms": instance_latency_ms,
+                "validity": result.validity,
+            })
+        self.last_runtime_diagnostics = {
+            "instance_count": len(rows),
+            "instance_latency_ms": instance_diagnostics,
+            "maximum_instance_latency_ms": max(
+                (
+                    item["latency_ms"]
+                    for item in instance_diagnostics
+                ),
+                default=0.0,
+            ),
+        }
         return ToolFrameResult(
             frame_key=frame_key,
             camera_frame_name=camera.frame_name,
@@ -825,17 +962,22 @@ class PlanarPoseEstimator:
         mask = instance.mask
         if mask.shape != depth.shape:
             return self._invalid(instance, "MASK_SHAPE_MISMATCH")
-        mask_pixels = int(mask.sum())
+        ys, xs = _mask_coordinates_in_bbox(mask, instance.bbox_xyxy_px)
+        mask_coordinates = (ys, xs)
+        mask_pixels = int(xs.size)
         if mask_pixels < self.config.minimum_mask_pixels:
             return self._invalid(instance, "MASK_TOO_SMALL")
-        valid_depth = mask & np.isfinite(depth) & (depth > 0.0)
-        point_count = int(valid_depth.sum())
+        mask_depth = depth[ys, xs]
+        point_count = int(
+            np.count_nonzero(np.isfinite(mask_depth) & (mask_depth > 0.0))
+        )
         depth_ratio = float(point_count / mask_pixels)
         try:
             endpoint = _pca_endpoints(
                 mask,
                 self._endpoint_sign_policy(instance.class_name),
                 image_bgr=image_bgr,
+                mask_coordinates=mask_coordinates,
             )
             anisotropy = float(endpoint["axis_anisotropy"])
             sign_confidence = float(endpoint["sign_confidence"])
@@ -845,6 +987,7 @@ class PlanarPoseEstimator:
                 endpoint["axis_uv"],
                 endpoint["axis_length_px"],
                 depth,
+                mask_coordinates=mask_coordinates,
             )
             origin_ray = _pixel_rays(reference["uv"].reshape(1, 2), camera)[0]
             position = origin_ray * (reference["depth_m"] / origin_ray[2])

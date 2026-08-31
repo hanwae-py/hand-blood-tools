@@ -36,3 +36,17 @@ unset ROS_LOCALHOST_ONLY
 # login user's ~/.local tree.  In particular, a user-site NumPy 2.x must not
 # override the NumPy 1.x ABI used by ROS cv_bridge and these model runtimes.
 export PYTHONNOUSERSITE=1
+
+# NumPy/OpenBLAS and PyTorch otherwise each fan small per-frame geometry
+# operations out across every logical CPU.  With several camera workers this
+# oversubscribes the host (the head Tool worker alone used 16 busy BLAS
+# threads) and delays latency-sensitive Hand/overlay callbacks.  These
+# operations are small enough that one native math thread is faster in the
+# complete concurrent pipeline.  Keep a dedicated override for profiling.
+PERCEPTION_NATIVE_MATH_THREADS="${PERCEPTION_NATIVE_MATH_THREADS:-1}"
+export OMP_NUM_THREADS="${PERCEPTION_OMP_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"
+export OPENBLAS_NUM_THREADS="${PERCEPTION_OPENBLAS_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"
+export MKL_NUM_THREADS="${PERCEPTION_MKL_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"
+export NUMEXPR_NUM_THREADS="${PERCEPTION_NUMEXPR_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"
+export VECLIB_MAXIMUM_THREADS="${PERCEPTION_VECLIB_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"
+export BLIS_NUM_THREADS="${PERCEPTION_BLIS_NUM_THREADS:-${PERCEPTION_NATIVE_MATH_THREADS}}"

@@ -39,6 +39,10 @@
     adson_forceps_confidence_threshold: 0.45
     enable_class_agnostic_nms: false
     class_agnostic_nms_iou: 0.8
+    # Keep substantial multi-part tools, but remove tiny disconnected islands.
+    mask_component_cleanup_enabled: true
+    mask_component_minimum_area_px: 16
+    mask_component_minimum_area_ratio: 0.005
 
     # Select a calibrated ROI profile at launch. Dataset-specific coordinates
     # must not be embedded in this live camera/base-calibration profile.

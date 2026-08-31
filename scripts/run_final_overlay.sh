@@ -59,5 +59,5 @@ exec "${PERCEPTION_PYTHON:-python3}" \
   -p enable_composite_output:=false \
   -p per_view_native_resolution:=true \
   -p per_view_jpeg_quality:=100 \
-  -p output_rate_hz:=15.0 \
+  -p output_rate_hz:="${FINAL_OVERLAY_OUTPUT_RATE_HZ:-30.0}" \
   "$@"

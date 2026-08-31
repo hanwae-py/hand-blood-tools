@@ -24,6 +24,7 @@ from pnu_surgical_tool.trt_engine import (
     load_engine_metadata,
     validate_engine_metadata,
 )
+from pnu_surgical_tool.trt_fast_predict import predict_thresholded_masks
 
 
 MODEL_CLASSES = {
@@ -140,6 +141,7 @@ class TrtBatchServer:
         }[str(metadata["input_dtype"])]
         model._optimized_inplace = True
         self._model = model
+        self._engine_runner = engine
         self._torch = torch
         self._metadata = metadata
         self._identity = {
@@ -259,10 +261,11 @@ class TrtBatchServer:
             minimum_threshold = min(thresholds)
             self._torch.cuda.synchronize()
             inference_started = time.perf_counter()
-            predictions = self._model.predict(
+            predictions, fast_predict_diagnostics = predict_thresholded_masks(
+                self._model,
+                self._engine_runner,
                 images,
-                threshold=minimum_threshold,
-                include_source_image=False,
+                minimum_threshold,
             )
             self._torch.cuda.synchronize()
             inference_ms = (time.perf_counter() - inference_started) * 1000.0
@@ -275,20 +278,37 @@ class TrtBatchServer:
             for index, (pending, prediction, threshold) in enumerate(
                 zip(batch, predictions, thresholds, strict=True)
             ):
+                response_started = time.perf_counter()
                 filtered = self._filter_prediction(prediction, threshold)
+                packed_prediction = pack_prediction(filtered)
+                response_build_ms = (
+                    time.perf_counter() - response_started
+                ) * 1000.0
+                runner_diagnostics = dict(
+                    self._engine_runner.last_runtime_diagnostics
+                )
+                runner_wall_ms = float(
+                    runner_diagnostics.get("runner_wall_ms", 0.0)
+                )
                 pending.response = self._response(
                     pending.payload,
                     ok=True,
-                    prediction=pack_prediction(filtered),
+                    prediction=packed_prediction,
                     diagnostics={
                         "backend": "tensorrt_shared_dynamic_batch",
                         "batch_size": len(batch),
                         "batch_index": index,
                         "server_inference_ms": inference_ms,
+                        "server_model_wrapper_ms": max(
+                            0.0, inference_ms - runner_wall_ms
+                        ),
+                        "server_response_build_ms": response_build_ms,
                         "server_queue_wait_ms": (
                             batch_started - pending.received_monotonic
                         ) * 1000.0,
                         "engine_sha256": self._metadata["engine_sha256"],
+                        **fast_predict_diagnostics,
+                        **runner_diagnostics,
                     },
                 )
             with self._stats_lock:

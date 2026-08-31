@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ from pnu_surgical_perception.final_overlay_compositor import (
     FinalOverlayCompositor,
     LatestBase,
     LatestLayer,
+    PanelEncodeSlot,
     PanelOutput,
     RightEePalmDisplayFilter,
     ToolRoiOverlayConfig,
@@ -1011,6 +1014,73 @@ def test_latest_base_staging_coalesces_superseded_jpegs_before_decode():
     assert state.image.shape == (12, 20, 3)
     assert state.processed_sequence == 2
     assert state.dropped == 1
+
+
+def test_panel_signatures_advance_only_with_source_rgb_frames():
+    node = FinalOverlayCompositor.__new__(FinalOverlayCompositor)
+    node._base = {
+        'cam_3': LatestBase(source_stamp_ns=101),
+        'cam_4': LatestBase(source_stamp_ns=202),
+    }
+    node._suction_base = LatestBase(source_stamp_ns=303)
+    node._right_ee_base = LatestBase(source_stamp_ns=404)
+
+    camera_context = {'base_state': 'live', 'layers': object()}
+    suction_context = {
+        'base_state': 'live', 'mask_state': 'live', 'mask_drawable': True,
+    }
+    right_ee_context = {
+        'base_state': 'live', 'hand_state': 'live', 'hand_drawable': True,
+        'gesture_state': 'live', 'gesture_drawable': True,
+    }
+    signatures = (
+        node._camera_panel_signature('cam_4', camera_context),
+        node._suction_panel_signature(suction_context),
+        node._right_ee_panel_signature(right_ee_context),
+    )
+
+    # Layer-only updates are deliberately folded into the next RGB frame.
+    suction_context['mask_state'] = 'stale'
+    right_ee_context['hand_state'] = 'stale'
+    assert node._camera_panel_signature('cam_4', camera_context) == signatures[0]
+    assert node._suction_panel_signature(suction_context) == signatures[1]
+    assert node._right_ee_panel_signature(right_ee_context) == signatures[2]
+
+    node._base['cam_4'].source_stamp_ns = 203
+    node._suction_base.source_stamp_ns = 304
+    node._right_ee_base.source_stamp_ns = 405
+    assert node._camera_panel_signature('cam_4', camera_context) != signatures[0]
+    assert node._suction_panel_signature(suction_context) != signatures[1]
+    assert node._right_ee_panel_signature(right_ee_context) != signatures[2]
+
+
+def test_panel_encoder_keeps_only_latest_job_while_busy():
+    node = FinalOverlayCompositor.__new__(FinalOverlayCompositor)
+    node._panel_encode_slots = {'cam_4': PanelEncodeSlot()}
+    node._panel_encode_executor = ThreadPoolExecutor(max_workers=1)
+    started = threading.Event()
+    release = threading.Event()
+    published = []
+
+    def publish(_panel, _image, signature, _header):
+        published.append(signature)
+        if len(published) == 1:
+            started.set()
+            assert release.wait(timeout=2.0)
+        return CompressedImage()
+
+    node._publish_panel_if_changed = publish
+    node._record_panel_output = lambda *_args: None
+    image = np.zeros((4, 6, 3), dtype=np.uint8)
+    assert node._schedule_panel_encode('cam_4', image, ('frame', 1), None)
+    assert started.wait(timeout=2.0)
+    assert node._schedule_panel_encode('cam_4', image, ('frame', 2), None)
+    assert node._schedule_panel_encode('cam_4', image, ('frame', 3), None)
+    release.set()
+    node._panel_encode_executor.shutdown(wait=True)
+
+    assert published == [('frame', 1), ('frame', 3)]
+    assert node._panel_encode_slots['cam_4'].coalesced == 1
 
 
 def test_status_output_falls_back_to_native_panel_without_composite():

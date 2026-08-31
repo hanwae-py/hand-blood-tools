@@ -78,6 +78,7 @@ from collections import OrderedDict
 import cv2
 import json
 import os
+import threading
 import time
 
 import numpy as np
@@ -135,6 +136,26 @@ _PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 _RECOGNITION_CACHE_SIZE = 16
 _MESSAGE_DELIVERY_KEY_CACHE_SIZE = 32
 _PUBLISHED_GESTURE_STAMP_CACHE_SIZE = 32
+
+
+def newest_ready_synced_message_id(pending_synced, ready_recognitions):
+    """Return the newest source-identical RGB-D/inference join, if any.
+
+    The synchronizer can advance to frame N+1 while MediaPipe is finishing
+    frame N. Requiring only the single newest synchronized slot to match can
+    therefore chase the inference worker forever and unnecessarily halve the
+    keypoint rate. A small bounded map lets frame N complete while inference
+    for N+1 proceeds, without creating a FIFO processing backlog.
+    """
+    newest = None
+    for message_id, synced in pending_synced.items():
+        recognition = ready_recognitions.get(message_id)
+        if recognition is None or recognition[0] != synced[0]:
+            continue
+        sequence = int(synced[1])
+        if newest is None or sequence > newest[0]:
+            newest = (sequence, message_id)
+    return newest[1] if newest is not None else None
 
 
 def image_reader_qos() -> QoSProfile:
@@ -432,6 +453,10 @@ class HandDetectionNode(LifecycleNode):
         self.declare_parameter('gesture_profile', 'topview')
         self.declare_parameter('max_hands', 4)
         self.declare_parameter('cpu_only', False)
+        self.declare_parameter('low_latency_pipeline', True)
+        self.declare_parameter('roi_inference_crop', True)
+        self.declare_parameter('roi_inference_margin', 0.08)
+        self.declare_parameter('opencv_num_threads', 1)
         self.declare_parameter('flip_handedness', False)
         self.declare_parameter('forced_handedness_label', '')
         self.declare_parameter('region_x_min', 0.0)
@@ -553,12 +578,35 @@ class HandDetectionNode(LifecycleNode):
         self._published_gesture_stamps = OrderedDict()
         self._color_delivery_sequence = 0
         self._sync_cached_inference_ms = 0.0
+        # Camera callbacks only overwrite these latest-value slots.  A
+        # MediaPipe worker and a depth/keypoint worker form a two-stage
+        # pipeline, so inference for frame N+1 can overlap 3-D processing for
+        # frame N without ever accumulating stale camera frames.
+        self._pipeline_condition = threading.Condition()
+        self._gesture_publish_lock = threading.Lock()
+        self._pipeline_threads = []
+        self._pipeline_stopping = False
+        self._latest_color = None
+        self._latest_color_sequence = 0
+        self._inference_consumed_sequence = 0
+        self._pending_synced = OrderedDict()
+        self._latest_synced_sequence = 0
+        self._keypoint_consumed_sequence = 0
+        self._ready_recognitions = OrderedDict()
+        self._coalesced_color_frames = 0
+        self._coalesced_synced_frames = 0
+        self.low_latency_pipeline = True
+        self.roi_inference_crop = True
+        self.roi_inference_margin = 0.08
 
         # Lifecycle publishers: rclpy silently drops publishes on these while
         # the node is not ACTIVE, which is exactly the gating we want.
         g = self.get_parameter
         reliable_output = QoSProfile(
-            depth=10,
+            # Perception observations are source-stamped current state.  A
+            # slow subscriber must receive the newest state instead of
+            # replaying up to ten obsolete skeletons.
+            depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
@@ -718,6 +766,19 @@ class HandDetectionNode(LifecycleNode):
             self.gesture_profile)
         self.max_hands = g('max_hands').value
         self.cpu_only = g('cpu_only').value
+        self.low_latency_pipeline = bool(g('low_latency_pipeline').value)
+        self.roi_inference_crop = bool(g('roi_inference_crop').value)
+        self.roi_inference_margin = float(g('roi_inference_margin').value)
+        if not 0.0 <= self.roi_inference_margin <= 0.5:
+            self.get_logger().error(
+                'roi_inference_margin must be in [0.0, 0.5]')
+            return TransitionCallbackReturn.FAILURE
+        opencv_num_threads = int(g('opencv_num_threads').value)
+        if not 1 <= opencv_num_threads <= 8:
+            self.get_logger().error('opencv_num_threads must be in [1, 8]')
+            return TransitionCallbackReturn.FAILURE
+        cv2.setUseOptimized(True)
+        cv2.setNumThreads(opencv_num_threads)
         self.flip_handedness = g('flip_handedness').value
         self.forced_handedness_label = str(
             g('forced_handedness_label').value).strip()
@@ -746,6 +807,13 @@ class HandDetectionNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
         self.region = (g('region_x_min').value, g('region_x_max').value,
                        g('region_y_min').value, g('region_y_max').value)
+        if not (
+            0.0 <= self.region[0] < self.region[1] <= 1.0
+            and 0.0 <= self.region[2] < self.region[3] <= 1.0
+        ):
+            self.get_logger().error(
+                'hand ROI must be a positive normalized rectangle')
+            return TransitionCallbackReturn.FAILURE
         self.robot_position = g('robot_position').value or None
         self.publish_overlay = g('publish_overlay').value
         self.publish_target_pose = bool(g('publish_target_pose').value)
@@ -1010,6 +1078,9 @@ class HandDetectionNode(LifecycleNode):
         self._last_gesture_error_code = ''
         self._last_gesture_error_message = ''
         self._last_real_depth_at = None
+        self._reset_pipeline_slots(reset_counters=True)
+        if self.low_latency_pipeline:
+            self._start_pipeline_workers()
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
@@ -1029,7 +1100,11 @@ class HandDetectionNode(LifecycleNode):
         self._last_gesture_error_code = ''
         self._last_gesture_error_message = ''
         self._last_real_depth_at = None
-        self.get_logger().info('ACTIVE: processing camera frames')
+        self._reset_pipeline_slots(reset_counters=True)
+        self.get_logger().info(
+            'ACTIVE: processing camera frames; '
+            f'pipeline={"latest-parallel" if self.low_latency_pipeline else "synchronous"}; '
+            f'mediapipe=gpu-fp16; opencv_threads={cv2.getNumThreads()}')
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -1039,6 +1114,7 @@ class HandDetectionNode(LifecycleNode):
         self._recognition_cache.clear()
         self._message_delivery_keys.clear()
         self._published_gesture_stamps.clear()
+        self._reset_pipeline_slots(reset_counters=False)
         if self.palm_facing_filter is not None:
             self.palm_facing_filter.reset()
         self.get_logger().info(
@@ -1049,6 +1125,7 @@ class HandDetectionNode(LifecycleNode):
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         """Release the models so their VRAM goes back to the pool."""
         self._active = False
+        self._stop_pipeline_workers()
         self._teardown_subscriptions()
         self._release_models()
         self.palm_facing_estimator = None
@@ -1064,6 +1141,7 @@ class HandDetectionNode(LifecycleNode):
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
         self._active = False
+        self._stop_pipeline_workers()
         self._teardown_subscriptions()
         self._release_models()
         self.palm_facing_estimator = None
@@ -1191,7 +1269,14 @@ class HandDetectionNode(LifecycleNode):
         ts_ms = self._mediapipe_timestamp_ms(source_ts_ms)
         started = time.monotonic()
         result = recognize_frame(
-            frame_bgr, self.hand_det, self.mp, ts_ms)
+            frame_bgr,
+            self.hand_det,
+            self.mp,
+            ts_ms,
+            inference_region=(
+                self.region if self.roi_inference_crop else None),
+            inference_margin=self.roi_inference_margin,
+        )
         inference_ms = (time.monotonic() - started) * 1000.0
         self._recognition_cache[delivery_key] = (
             frame_bgr, result, inference_ms)
@@ -1200,6 +1285,14 @@ class HandDetectionNode(LifecycleNode):
         return frame_bgr, result, inference_ms, False, delivery_key
 
     def _publish_gestures_for_result(
+        self, color_msg, frame_bgr, result, delivery_key,
+    ):
+        """Serialize the idempotency cache while pipeline stages overlap."""
+        with self._gesture_publish_lock:
+            return self._publish_gestures_for_result_unlocked(
+                color_msg, frame_bgr, result, delivery_key)
+
+    def _publish_gestures_for_result_unlocked(
         self, color_msg, frame_bgr, result, delivery_key,
     ):
         """Publish at most once for a source frame, without depth input."""
@@ -1258,12 +1351,20 @@ class HandDetectionNode(LifecycleNode):
         """RGB-only fast path; depth loss must not stop gesture evidence."""
         if not self._active:
             return
+        if self.low_latency_pipeline:
+            self._stage_latest_color(color_msg)
+            return
+        self._process_color_for_gesture(color_msg)
+
+    def _process_color_for_gesture(self, color_msg):
+        """Run one RGB inference on the dedicated latest-frame worker."""
         started = time.monotonic()
         try:
-            frame_bgr, result, _, _, delivery_key = self._recognize_color(
+            frame_bgr, result, inference_ms, _, delivery_key = self._recognize_color(
                 color_msg, direct_delivery=True)
             self._publish_gestures_for_result(
                 color_msg, frame_bgr, result, delivery_key)
+            return frame_bgr, result, inference_ms, delivery_key
         except Exception:
             self._gesture_errors += 1
             import traceback
@@ -1273,9 +1374,180 @@ class HandDetectionNode(LifecycleNode):
             self.get_logger().error(
                 'exception in RGB-only gesture path:\n'
                 + traceback.format_exc())
+            return None
         finally:
             self._last_gesture_process_ms = (
                 time.monotonic() - started) * 1000.0
+
+    def _reset_pipeline_slots(self, *, reset_counters):
+        with self._pipeline_condition:
+            self._latest_color = None
+            self._latest_color_sequence = 0
+            self._inference_consumed_sequence = 0
+            self._pending_synced.clear()
+            self._latest_synced_sequence = 0
+            self._keypoint_consumed_sequence = 0
+            self._ready_recognitions.clear()
+            if reset_counters:
+                self._coalesced_color_frames = 0
+                self._coalesced_synced_frames = 0
+            self._pipeline_condition.notify_all()
+
+    def _start_pipeline_workers(self):
+        with self._pipeline_condition:
+            if any(thread.is_alive() for thread in self._pipeline_threads):
+                return
+            self._pipeline_stopping = False
+            self._pipeline_threads = [
+                threading.Thread(
+                    target=self._inference_worker_loop,
+                    name=f'{self.get_name()}-rgb-inference',
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=self._keypoint_worker_loop,
+                    name=f'{self.get_name()}-depth-keypoints',
+                    daemon=True,
+                ),
+            ]
+            threads = tuple(self._pipeline_threads)
+        for thread in threads:
+            thread.start()
+
+    def _stop_pipeline_workers(self):
+        with self._pipeline_condition:
+            self._pipeline_stopping = True
+            self._pipeline_condition.notify_all()
+            threads = tuple(self._pipeline_threads)
+        for thread in threads:
+            if thread.is_alive():
+                thread.join(timeout=5.0)
+        with self._pipeline_condition:
+            self._pipeline_threads = []
+            self._latest_color = None
+            self._pending_synced.clear()
+            self._ready_recognitions.clear()
+
+    def _stage_latest_color(self, color_msg):
+        with self._pipeline_condition:
+            if (
+                self._latest_color is not None
+                and self._latest_color_sequence
+                > self._inference_consumed_sequence
+            ):
+                self._coalesced_color_frames += 1
+            self._latest_color_sequence += 1
+            self._latest_color = (
+                self._latest_color_sequence, color_msg)
+            self._pipeline_condition.notify_all()
+
+    def _stage_latest_synced(self, color_msg, info_msg, depth_msg):
+        with self._pipeline_condition:
+            self._latest_synced_sequence += 1
+            message_id = id(color_msg)
+            self._pending_synced[message_id] = (
+                self._source_key(color_msg),
+                self._latest_synced_sequence,
+                color_msg,
+                info_msg,
+                depth_msg,
+            )
+            self._pending_synced.move_to_end(message_id)
+            while len(self._pending_synced) > 8:
+                _, evicted = self._pending_synced.popitem(last=False)
+                if evicted[1] > self._keypoint_consumed_sequence:
+                    self._coalesced_synced_frames += 1
+            self._pipeline_condition.notify_all()
+
+    def _inference_worker_loop(self):
+        while True:
+            with self._pipeline_condition:
+                self._pipeline_condition.wait_for(lambda: (
+                    self._pipeline_stopping
+                    or (
+                        self._active
+                        and self._latest_color is not None
+                        and self._latest_color_sequence
+                        > self._inference_consumed_sequence
+                    )
+                ))
+                if self._pipeline_stopping:
+                    return
+                sequence, color_msg = self._latest_color
+                self._inference_consumed_sequence = sequence
+
+            recognition = self._process_color_for_gesture(color_msg)
+            if recognition is None:
+                continue
+            frame_bgr, result, inference_ms, delivery_key = recognition
+            with self._pipeline_condition:
+                if not self._active or self._pipeline_stopping:
+                    continue
+                message_id = id(color_msg)
+                self._ready_recognitions[message_id] = (
+                    self._source_key(color_msg),
+                    frame_bgr,
+                    result,
+                    inference_ms,
+                    delivery_key,
+                )
+                self._ready_recognitions.move_to_end(message_id)
+                while len(self._ready_recognitions) > 8:
+                    self._ready_recognitions.popitem(last=False)
+                self._pipeline_condition.notify_all()
+
+    def _keypoint_worker_loop(self):
+        while True:
+            with self._pipeline_condition:
+                def ready():
+                    if self._pipeline_stopping:
+                        return True
+                    if not self._active:
+                        return False
+                    return newest_ready_synced_message_id(
+                        self._pending_synced,
+                        self._ready_recognitions,
+                    ) is not None
+
+                self._pipeline_condition.wait_for(ready)
+                if self._pipeline_stopping:
+                    return
+                message_id = newest_ready_synced_message_id(
+                    self._pending_synced,
+                    self._ready_recognitions,
+                )
+                if message_id is None:
+                    continue
+                (
+                    _source_key,
+                    sequence,
+                    color_msg,
+                    info_msg,
+                    depth_msg,
+                ) = self._pending_synced.pop(message_id)
+                cached = self._ready_recognitions.pop(message_id)
+
+                # Once a newer complete join exists, older unmatched or
+                # unprocessed frames can never be the freshest output.
+                obsolete_ids = tuple(
+                    candidate_id
+                    for candidate_id, candidate in self._pending_synced.items()
+                    if candidate[1] < sequence
+                )
+                for candidate_id in obsolete_ids:
+                    self._pending_synced.pop(candidate_id, None)
+                    self._ready_recognitions.pop(candidate_id, None)
+                self._coalesced_synced_frames += len(obsolete_ids)
+                self._keypoint_consumed_sequence = sequence
+
+            _, frame_bgr, result, inference_ms, delivery_key = cached
+            self._process(
+                color_msg,
+                info_msg,
+                depth_msg,
+                recognition=(
+                    frame_bgr, result, inference_ms, True, delivery_key),
+            )
 
     # ---------------------------------------------------------------------
     # health / diagnostics -- published in every lifecycle state
@@ -1570,6 +1842,17 @@ class HandDetectionNode(LifecycleNode):
             'processed_hz_1s': round(self._processed_hz, 2),
             'gesture_processed_hz_1s': round(
                 self._gesture_processed_hz, 2),
+            'pipeline_mode': (
+                'latest_parallel' if self.low_latency_pipeline
+                else 'synchronous'),
+            'coalesced_color_frames': self._coalesced_color_frames,
+            'coalesced_synced_frames': self._coalesced_synced_frames,
+            'roi_inference_crop': self.roi_inference_crop,
+            'roi_inference_margin': self.roi_inference_margin,
+            'opencv_num_threads': cv2.getNumThreads(),
+            'inference_backend': (
+                'mediapipe_gpu_delegate_fp16'
+                if not self.cpu_only else 'mediapipe_cpu'),
             'errors': self._errors,
             'gesture_errors': self._gesture_errors,
             'depth_source': self.depth_source_label,
@@ -1657,10 +1940,18 @@ class HandDetectionNode(LifecycleNode):
     # ---------------------------------------------------------------------
 
     def _on_synced_mono(self, color_msg, info_msg):
-        self._process(color_msg, info_msg, depth_msg=None)
+        self._dispatch_synced(color_msg, info_msg, depth_msg=None)
 
     def _on_synced_real(self, color_msg, depth_msg, info_msg):
-        self._process(color_msg, info_msg, depth_msg=depth_msg)
+        self._dispatch_synced(color_msg, info_msg, depth_msg=depth_msg)
+
+    def _dispatch_synced(self, color_msg, info_msg, depth_msg):
+        if not self._active:
+            return
+        if self.low_latency_pipeline:
+            self._stage_latest_synced(color_msg, info_msg, depth_msg)
+            return
+        self._process(color_msg, info_msg, depth_msg)
 
     def _on_synced_rgb_fallback(self, color_msg, info_msg):
         """Keep 2-D evidence live until real depth successfully pairs."""
@@ -1673,7 +1964,7 @@ class HandDetectionNode(LifecycleNode):
             <= self.real_depth_fallback_timeout_sec
         ):
             return
-        self._process(color_msg, info_msg, depth_msg=None)
+        self._dispatch_synced(color_msg, info_msg, depth_msg=None)
 
     @staticmethod
     def _depth_camera_info_key(message):
@@ -1935,7 +2226,7 @@ class HandDetectionNode(LifecycleNode):
             )
         return aligned
 
-    def _process(self, color_msg, info_msg, depth_msg):
+    def _process(self, color_msg, info_msg, depth_msg, *, recognition=None):
         # The subscriptions stay alive while INACTIVE so that reactivating is
         # instant; this is where a non-active node throws the frame away
         # before doing any GPU work.
@@ -1960,7 +2251,8 @@ class HandDetectionNode(LifecycleNode):
         self._sync_cached_inference_ms = 0.0
         succeeded = False
         try:
-            self._process_inner(color_msg, info_msg, depth_msg)
+            self._process_inner(
+                color_msg, info_msg, depth_msg, recognition=recognition)
             succeeded = True
             self._last_error_code = ''
             self._last_error_message = ''
@@ -2010,10 +2302,14 @@ class HandDetectionNode(LifecycleNode):
         self._last_mp_ts_ms = ts_ms
         return int(ts_ms)
 
-    def _process_inner(self, color_msg, info_msg, depth_msg):
+    def _process_inner(
+        self, color_msg, info_msg, depth_msg, *, recognition=None,
+    ):
         (frame_bgr, recognition_result, inference_ms, cache_hit,
          delivery_key) = (
-            self._recognize_color(color_msg))
+            self._recognize_color(color_msg)
+            if recognition is None else recognition
+        )
         if cache_hit:
             # _process() times the synchronized depth/keypoint part. Include
             # the earlier RGB-only recognizer time so existing latency

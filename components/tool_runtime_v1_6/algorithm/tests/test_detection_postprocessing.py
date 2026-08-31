@@ -8,9 +8,11 @@ from pnu_surgical_tool import (
     DetectionInstance,
     DetectionPostprocessor,
     DetectionPostprocessorConfig,
+    SmallComponentCleanupConfig,
     TemporalClassConfig,
     WorkspaceRoiConfig,
 )
+from pnu_surgical_tool.detection_postprocessing import _mask_iou
 
 
 CLASSES = {
@@ -247,3 +249,110 @@ def test_large_area_change_does_not_inherit_previous_class() -> None:
     assert result.instances[0].class_name == "Bipolar Forceps"
     assert processor.last_diagnostics["tracks_created"] == 1
     assert processor.last_diagnostics["class_overrides"] == 0
+
+
+def test_mask_iou_matches_full_frame_boolean_reference() -> None:
+    rng = np.random.default_rng(42)
+    for _ in range(20):
+        left = rng.random((37, 53)) > 0.85
+        right = rng.random((37, 53)) > 0.80
+        intersection = int(np.count_nonzero(left & right))
+        union = int(np.count_nonzero(left | right))
+
+        assert _mask_iou(left, right) == pytest.approx(
+            intersection / union if union else 0.0
+        )
+
+
+def test_temporal_geometry_uses_mask_extent_not_declared_bbox() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            temporal_class=TemporalClassConfig(enabled=True)
+        )
+    )
+    first_mask = square(1, 1, 5, 5)
+    second_mask = first_mask.copy()
+    first = instance(3, first_mask)
+    second = instance(4, second_mask)
+    first.bbox_xyxy_px = (10.0, 10.0, 11.0, 11.0)
+    second.bbox_xyxy_px = (10.0, 10.0, 11.0, 11.0)
+
+    processor.process(batch(first))
+    result = processor.process(batch(second))
+
+    assert result.instances[0].class_name == "Adson Forceps"
+    assert processor.last_diagnostics["tracks_matched"] == 1
+
+
+def test_small_disconnected_component_is_removed_inside_bbox_crop() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            small_component_cleanup=SmallComponentCleanupConfig(
+                enabled=True,
+                minimum_area_px=4,
+                minimum_area_ratio=0.0,
+            )
+        )
+    )
+    mask = square(4, 4, 10, 10)
+    mask[2, 2] = True
+
+    result = processor.process(batch(instance(3, mask)))
+
+    assert not result.instances[0].mask[2, 2]
+    assert np.count_nonzero(result.instances[0].mask) == 36
+    assert result.instances[0].bbox_xyxy_px == (4.0, 4.0, 10.0, 10.0)
+    assert processor.last_diagnostics["small_components_removed"] == 1
+
+
+def test_cleanup_preserves_multiple_substantial_components() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            small_component_cleanup=SmallComponentCleanupConfig(
+                enabled=True,
+                minimum_area_px=4,
+                minimum_area_ratio=0.0,
+            )
+        )
+    )
+    mask = square(2, 2, 6, 6)
+    mask[10:13, 10:13] = True
+
+    original = instance(3, mask)
+    result = processor.process(batch(original))
+
+    assert result.instances[0] is original
+    assert np.array_equal(result.instances[0].mask, mask)
+    assert processor.last_diagnostics["small_components_removed"] == 0
+
+
+def test_cleanup_always_preserves_largest_component() -> None:
+    processor = DetectionPostprocessor(
+        DetectionPostprocessorConfig(
+            small_component_cleanup=SmallComponentCleanupConfig(
+                enabled=True,
+                minimum_area_px=100,
+                minimum_area_ratio=1.0,
+            )
+        )
+    )
+    mask = square(5, 5, 8, 8)
+    mask[2, 2] = True
+
+    result = processor.process(batch(instance(3, mask)))
+
+    assert np.count_nonzero(result.instances[0].mask) == 9
+    assert processor.last_diagnostics["small_components_removed"] == 1
+
+
+def test_disabled_cleanup_reuses_original_instance_and_mask() -> None:
+    processor = DetectionPostprocessor(DetectionPostprocessorConfig())
+    mask = square(4, 4, 10, 10)
+    mask[2, 2] = True
+    original = instance(3, mask)
+
+    result = processor.process(batch(original))
+
+    assert result.instances[0] is original
+    assert result.instances[0].mask is original.mask
+    assert result.instances[0].bbox_xyxy_px == original.bbox_xyxy_px

@@ -134,37 +134,60 @@ def _window_pid(x11, display, window):
 
 
 def _find_window(x11, display, root, *, title=None, pid=None):
-    stack = [(root, 0)]
-    deepest_match = None
-    while stack:
-        window, depth = stack.pop()
-        matches = (
+    """Find the top-level client frame that contains the matching rqt window.
+
+    The useful ``Image View`` is a root child, while rqt's empty main window
+    is reparented once by Mutter.  Returning the matching root child lets the
+    hide/minimize actions affect that whole Mutter frame rather than only its
+    visible child.  One level is enough and avoids racing transient nested
+    frames during rqt startup.
+    """
+    def matches(window):
+        return (
             (title is None or _window_name(x11, display, window) == title)
             and (pid is None or _window_pid(x11, display, window) == pid)
         )
-        if matches:
-            if deepest_match is None or depth > deepest_match[0]:
-                deepest_match = (depth, window)
-        returned_root = Window()
-        returned_parent = Window()
-        children = ctypes.POINTER(Window)()
-        child_count = ctypes.c_uint()
-        if x11.XQueryTree(
+
+    returned_root = Window()
+    returned_parent = Window()
+    children = ctypes.POINTER(Window)()
+    child_count = ctypes.c_uint()
+    if not x11.XQueryTree(
             display,
-            window,
+            root,
             ctypes.byref(returned_root),
             ctypes.byref(returned_parent),
             ctypes.byref(children),
-            ctypes.byref(child_count),
-        ):
+            ctypes.byref(child_count)):
+        return None
+    try:
+        for index in range(child_count.value):
+            top_level = children[index]
+            if matches(top_level):
+                return top_level
+            nested_root = Window()
+            nested_parent = Window()
+            nested_children = ctypes.POINTER(Window)()
+            nested_count = ctypes.c_uint()
+            if not x11.XQueryTree(
+                    display,
+                    top_level,
+                    ctypes.byref(nested_root),
+                    ctypes.byref(nested_parent),
+                    ctypes.byref(nested_children),
+                    ctypes.byref(nested_count)):
+                continue
             try:
-                stack.extend(
-                    (children[index], depth + 1)
-                    for index in range(child_count.value))
+                for nested_index in range(nested_count.value):
+                    if matches(nested_children[nested_index]):
+                        return top_level
             finally:
-                if children:
-                    x11.XFree(children)
-    return None if deepest_match is None else deepest_match[1]
+                if nested_children:
+                    x11.XFree(nested_children)
+    finally:
+        if children:
+            x11.XFree(children)
+    return None
 
 
 def _request_window_geometry(x11, display, root, window, x, y, width, height):

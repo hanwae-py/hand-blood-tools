@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from dataclasses import dataclass, field, replace
 import math
+import time
 
 import cv2
 import numpy as np
@@ -76,7 +77,28 @@ class TemporalClassConfig:
 
 
 @dataclass(frozen=True)
+class SmallComponentCleanupConfig:
+    """Remove insignificant disconnected islands inside each instance bbox."""
+
+    enabled: bool = False
+    minimum_area_px: int = 16
+    minimum_area_ratio: float = 0.005
+
+    def __post_init__(self) -> None:
+        if self.minimum_area_px < 1:
+            raise ValueError("minimum_area_px must be positive")
+        if (
+            not math.isfinite(self.minimum_area_ratio)
+            or not 0.0 <= self.minimum_area_ratio <= 1.0
+        ):
+            raise ValueError("minimum_area_ratio must be finite and in [0, 1]")
+
+
+@dataclass(frozen=True)
 class DetectionPostprocessorConfig:
+    small_component_cleanup: SmallComponentCleanupConfig = field(
+        default_factory=SmallComponentCleanupConfig
+    )
     workspace_roi: WorkspaceRoiConfig = field(default_factory=WorkspaceRoiConfig)
     temporal_class: TemporalClassConfig = field(default_factory=TemporalClassConfig)
     default_class_confidence_threshold: float = 0.0
@@ -124,11 +146,22 @@ class _ClassEvidence:
 class _Track:
     track_id: int
     mask: np.ndarray
+    mask_area: int
+    mask_bounds_xyxy_px: tuple[int, int, int, int] | None
     bbox_xyxy_px: tuple[float, float, float, float]
     centroid_xy_px: tuple[float, float]
     stable_class: _ClassEvidence
     history: deque[_ClassEvidence]
     missed_frames: int = 0
+
+
+@dataclass(frozen=True)
+class _MaskGeometry:
+    """Frame-local mask measurements reused by ROI and track association."""
+
+    area: int
+    bounds_xyxy_px: tuple[int, int, int, int] | None
+    centroid_xy_px: tuple[float, float]
 
 
 def _bbox_iou(
@@ -146,22 +179,133 @@ def _bbox_iou(
     return intersection / union if union > 0.0 else 0.0
 
 
-def _mask_iou(left: np.ndarray, right: np.ndarray) -> float:
+def _measure_mask(
+    mask: np.ndarray,
+    bbox: tuple[float, float, float, float],
+) -> _MaskGeometry:
+    """Measure a mask once instead of rescanning it for every track pair."""
+    ys, xs = np.nonzero(mask)
+    area = int(xs.size)
+    if area:
+        return _MaskGeometry(
+            area=area,
+            bounds_xyxy_px=(
+                int(xs.min()),
+                int(ys.min()),
+                int(xs.max()) + 1,
+                int(ys.max()) + 1,
+            ),
+            centroid_xy_px=(float(xs.mean()), float(ys.mean())),
+        )
+    return _MaskGeometry(
+        area=0,
+        bounds_xyxy_px=None,
+        centroid_xy_px=(
+            (bbox[0] + bbox[2]) * 0.5,
+            (bbox[1] + bbox[3]) * 0.5,
+        ),
+    )
+
+
+def _bbox_crop_bounds(
+    bbox: tuple[float, float, float, float],
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int] | None:
+    """Return a clipped, one-pixel-padded integer bbox crop."""
+    if width < 1 or height < 1 or not all(math.isfinite(value) for value in bbox):
+        return None
+    x0 = max(0, int(math.floor(min(bbox[0], bbox[2]))) - 1)
+    y0 = max(0, int(math.floor(min(bbox[1], bbox[3]))) - 1)
+    x1 = min(width, int(math.ceil(max(bbox[0], bbox[2]))) + 1)
+    y1 = min(height, int(math.ceil(max(bbox[1], bbox[3]))) + 1)
+    return (x0, y0, x1, y1) if x0 < x1 and y0 < y1 else None
+
+
+def _geometry_from_components(
+    stats: np.ndarray,
+    centroids: np.ndarray,
+    component_indices: np.ndarray,
+    crop_x0: int,
+    crop_y0: int,
+) -> _MaskGeometry:
+    """Combine selected connected-component statistics without a mask scan."""
+    selected = np.asarray(component_indices, dtype=np.int32).reshape(-1)
+    if selected.size == 0:
+        return _MaskGeometry(area=0, bounds_xyxy_px=None, centroid_xy_px=(0.0, 0.0))
+    areas = stats[selected, cv2.CC_STAT_AREA].astype(np.int64)
+    area = int(areas.sum())
+    left = int(stats[selected, cv2.CC_STAT_LEFT].min()) + crop_x0
+    top = int(stats[selected, cv2.CC_STAT_TOP].min()) + crop_y0
+    right = int(
+        np.max(
+            stats[selected, cv2.CC_STAT_LEFT]
+            + stats[selected, cv2.CC_STAT_WIDTH]
+        )
+    ) + crop_x0
+    bottom = int(
+        np.max(
+            stats[selected, cv2.CC_STAT_TOP]
+            + stats[selected, cv2.CC_STAT_HEIGHT]
+        )
+    ) + crop_y0
+    centroid_x = float(
+        np.dot(centroids[selected, 0], areas) / max(area, 1)
+    ) + crop_x0
+    centroid_y = float(
+        np.dot(centroids[selected, 1], areas) / max(area, 1)
+    ) + crop_y0
+    return _MaskGeometry(
+        area=area,
+        bounds_xyxy_px=(left, top, right, bottom),
+        centroid_xy_px=(centroid_x, centroid_y),
+    )
+
+
+def _mask_iou_from_geometry(
+    left: np.ndarray,
+    left_geometry: _MaskGeometry,
+    right: np.ndarray,
+    right_geometry: _MaskGeometry,
+) -> float:
     if left.shape != right.shape:
         return 0.0
-    intersection = int(np.count_nonzero(left & right))
-    union = int(np.count_nonzero(left | right))
+    left_bounds = left_geometry.bounds_xyxy_px
+    right_bounds = right_geometry.bounds_xyxy_px
+    if left_bounds is None or right_bounds is None:
+        return 0.0
+    x0 = max(left_bounds[0], right_bounds[0])
+    y0 = max(left_bounds[1], right_bounds[1])
+    x1 = min(left_bounds[2], right_bounds[2])
+    y1 = min(left_bounds[3], right_bounds[3])
+    if x0 >= x1 or y0 >= y1:
+        intersection = 0
+    else:
+        intersection = int(
+            np.count_nonzero(
+                left[y0:y1, x0:x1] & right[y0:y1, x0:x1]
+            )
+        )
+    union = left_geometry.area + right_geometry.area - intersection
     return intersection / union if union else 0.0
+
+
+def _mask_iou(left: np.ndarray, right: np.ndarray) -> float:
+    """Return exact mask IoU; retained as a standalone test/helper API."""
+    empty_bbox = (0.0, 0.0, 0.0, 0.0)
+    return _mask_iou_from_geometry(
+        left,
+        _measure_mask(left, empty_bbox),
+        right,
+        _measure_mask(right, empty_bbox),
+    )
 
 
 def _mask_centroid(
     mask: np.ndarray,
     bbox: tuple[float, float, float, float],
 ) -> tuple[float, float]:
-    ys, xs = np.nonzero(mask)
-    if xs.size:
-        return float(xs.mean()), float(ys.mean())
-    return (bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5
+    return _measure_mask(mask, bbox).centroid_xy_px
 
 
 class DetectionPostprocessor:
@@ -183,11 +327,17 @@ class DetectionPostprocessor:
             "enabled": bool(
                 self._class_confidence_thresholds
                 or config.default_class_confidence_threshold > 0.0
+                or config.small_component_cleanup.enabled
                 or config.workspace_roi.enabled
                 or config.temporal_class.enabled
             ),
             "input_instances": 0,
             "class_confidence_rejected_instances": 0,
+            "component_cleanup_enabled": config.small_component_cleanup.enabled,
+            "component_cleanup_latency_ms": 0.0,
+            "component_cleanup_modified_instances": 0,
+            "small_components_removed": 0,
+            "small_component_pixels_removed": 0,
             "roi_rejected_instances": 0,
             "output_instances": 0,
             "active_tracks": 0,
@@ -233,31 +383,52 @@ class DetectionPostprocessor:
         self._roi_cache[key] = mask
         return mask
 
-    def _inside_roi(self, item: DetectionInstance, roi: np.ndarray) -> bool:
+    def _inside_roi(
+        self,
+        item: DetectionInstance,
+        roi: np.ndarray,
+        geometry: _MaskGeometry | None = None,
+    ) -> bool:
         mask = np.asarray(item.mask, dtype=bool)
         if mask.shape != roi.shape:
             raise ValueError(
                 f"instance mask shape {mask.shape} does not match ROI {roi.shape}"
             )
-        area = int(np.count_nonzero(mask))
-        if area == 0:
+        measured = geometry or _measure_mask(mask, item.bbox_xyxy_px)
+        if measured.area == 0 or measured.bounds_xyxy_px is None:
             return False
-        overlap = int(np.count_nonzero(mask & roi)) / area
+        x0, y0, x1, y1 = measured.bounds_xyxy_px
+        overlap = (
+            int(np.count_nonzero(mask[y0:y1, x0:x1] & roi[y0:y1, x0:x1]))
+            / measured.area
+        )
         if overlap < self.config.workspace_roi.minimum_mask_overlap:
             return False
         if self.config.workspace_roi.require_mask_centroid_inside:
-            centroid_x, centroid_y = _mask_centroid(mask, item.bbox_xyxy_px)
+            centroid_x, centroid_y = measured.centroid_xy_px
             x = min(max(int(round(centroid_x)), 0), roi.shape[1] - 1)
             y = min(max(int(round(centroid_y)), 0), roi.shape[0] - 1)
             if not roi[y, x]:
                 return False
         return True
 
-    def _filter_roi(self, batch: DetectionBatch) -> list[DetectionInstance]:
+    def _filter_roi(
+        self,
+        batch: DetectionBatch,
+        geometries: dict[int, _MaskGeometry] | None = None,
+    ) -> list[DetectionInstance]:
         if not self.config.workspace_roi.enabled:
             return list(batch.instances)
         roi = self._roi_mask(batch.image_width, batch.image_height)
-        return [item for item in batch.instances if self._inside_roi(item, roi)]
+        return [
+            item
+            for item in batch.instances
+            if self._inside_roi(
+                item,
+                roi,
+                geometries.get(id(item)) if geometries is not None else None,
+            )
+        ]
 
     def _filter_class_confidence(
         self, instances: list[DetectionInstance]
@@ -273,30 +444,80 @@ class DetectionPostprocessor:
             )
         ]
 
+    def _cleanup_small_components(
+        self,
+        item: DetectionInstance,
+    ) -> tuple[DetectionInstance, _MaskGeometry, int, int]:
+        """Clean one instance in its bbox crop and return reusable geometry."""
+        mask = np.asarray(item.mask, dtype=bool)
+        height, width = mask.shape
+        bounds = _bbox_crop_bounds(item.bbox_xyxy_px, width, height)
+        if bounds is None:
+            return item, _measure_mask(mask, item.bbox_xyxy_px), 0, 0
+        x0, y0, x1, y1 = bounds
+        crop = np.ascontiguousarray(mask[y0:y1, x0:x1], dtype=np.uint8)
+        label_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            crop, connectivity=8
+        )
+        if label_count <= 1:
+            return item, _measure_mask(mask, item.bbox_xyxy_px), 0, 0
+
+        foreground_indices = np.arange(1, label_count, dtype=np.int32)
+        areas = stats[foreground_indices, cv2.CC_STAT_AREA].astype(np.int64)
+        total_area = int(areas.sum())
+        threshold = max(
+            self.config.small_component_cleanup.minimum_area_px,
+            int(math.ceil(
+                total_area
+                * self.config.small_component_cleanup.minimum_area_ratio
+            )),
+        )
+        keep = areas >= threshold
+        keep[int(np.argmax(areas))] = True
+        kept_indices = foreground_indices[keep]
+        geometry = _geometry_from_components(
+            stats, centroids, kept_indices, x0, y0
+        )
+        removed_count = int(np.count_nonzero(~keep))
+        if removed_count == 0:
+            return item, geometry, 0, 0
+
+        keep_lookup = np.zeros(label_count, dtype=bool)
+        keep_lookup[kept_indices] = True
+        cleaned_mask = np.zeros_like(mask, dtype=bool)
+        cleaned_mask[y0:y1, x0:x1] = keep_lookup[labels]
+        removed_pixels = int(areas[~keep].sum())
+        assert geometry.bounds_xyxy_px is not None
+        bx0, by0, bx1, by1 = geometry.bounds_xyxy_px
+        cleaned_item = replace(
+            item,
+            mask=cleaned_mask,
+            bbox_xyxy_px=(float(bx0), float(by0), float(bx1), float(by1)),
+        )
+        return cleaned_item, geometry, removed_count, removed_pixels
+
     def _association_score(
         self,
         track: _Track,
         item: DetectionInstance,
         width: int,
         height: int,
+        geometry: _MaskGeometry | None = None,
     ) -> float | None:
         config = self.config.temporal_class
-        mask_iou = _mask_iou(track.mask, item.mask)
+        measured = geometry or _measure_mask(item.mask, item.bbox_xyxy_px)
         bbox_iou = _bbox_iou(track.bbox_xyxy_px, item.bbox_xyxy_px)
-        track_area = int(np.count_nonzero(track.mask))
-        item_area = int(np.count_nonzero(item.mask))
-        minimum_area = min(track_area, item_area)
+        minimum_area = min(track.mask_area, measured.area)
         area_ratio = (
-            max(track_area, item_area) / minimum_area
+            max(track.mask_area, measured.area) / minimum_area
             if minimum_area > 0
             else math.inf
         )
-        centroid = _mask_centroid(item.mask, item.bbox_xyxy_px)
         diagonal = math.hypot(width, height)
         distance_norm = (
             math.hypot(
-                centroid[0] - track.centroid_xy_px[0],
-                centroid[1] - track.centroid_xy_px[1],
+                measured.centroid_xy_px[0] - track.centroid_xy_px[0],
+                measured.centroid_xy_px[1] - track.centroid_xy_px[1],
             )
             / diagonal
             if diagonal > 0.0
@@ -306,6 +527,16 @@ class DetectionPostprocessor:
             return None
         if distance_norm > config.maximum_centroid_distance_norm:
             return None
+        mask_iou = _mask_iou_from_geometry(
+            track.mask,
+            _MaskGeometry(
+                area=track.mask_area,
+                bounds_xyxy_px=track.mask_bounds_xyxy_px,
+                centroid_xy_px=track.centroid_xy_px,
+            ),
+            item.mask,
+            measured,
+        )
         if (
             mask_iou < config.minimum_mask_iou
             and bbox_iou < config.minimum_bbox_iou
@@ -327,13 +558,20 @@ class DetectionPostprocessor:
             confidence=float(item.class_confidence),
         )
 
-    def _new_track(self, item: DetectionInstance) -> _Track:
+    def _new_track(
+        self,
+        item: DetectionInstance,
+        geometry: _MaskGeometry | None = None,
+    ) -> _Track:
         evidence = self._evidence(item)
+        measured = geometry or _measure_mask(item.mask, item.bbox_xyxy_px)
         track = _Track(
             track_id=self._next_track_id,
             mask=np.asarray(item.mask, dtype=bool).copy(),
+            mask_area=measured.area,
+            mask_bounds_xyxy_px=measured.bounds_xyxy_px,
             bbox_xyxy_px=tuple(item.bbox_xyxy_px),
-            centroid_xy_px=_mask_centroid(item.mask, item.bbox_xyxy_px),
+            centroid_xy_px=measured.centroid_xy_px,
             stable_class=evidence,
             history=deque(
                 [evidence], maxlen=self.config.temporal_class.history_size
@@ -344,9 +582,13 @@ class DetectionPostprocessor:
         return track
 
     def _update_track(
-        self, track: _Track, item: DetectionInstance
+        self,
+        track: _Track,
+        item: DetectionInstance,
+        geometry: _MaskGeometry | None = None,
     ) -> tuple[DetectionInstance, bool, bool, bool]:
         evidence = self._evidence(item)
+        measured = geometry or _measure_mask(item.mask, item.bbox_xyxy_px)
         raw_class_transition = (
             bool(track.history)
             and track.history[-1].model_class_index
@@ -354,8 +596,10 @@ class DetectionPostprocessor:
         )
         track.history.append(evidence)
         track.mask = np.asarray(item.mask, dtype=bool).copy()
+        track.mask_area = measured.area
+        track.mask_bounds_xyxy_px = measured.bounds_xyxy_px
         track.bbox_xyxy_px = tuple(item.bbox_xyxy_px)
-        track.centroid_xy_px = _mask_centroid(item.mask, item.bbox_xyxy_px)
+        track.centroid_xy_px = measured.centroid_xy_px
         track.missed_frames = 0
 
         scores: Counter[int] = Counter()
@@ -401,14 +645,22 @@ class DetectionPostprocessor:
         instances: list[DetectionInstance],
         width: int,
         height: int,
+        geometries: dict[int, _MaskGeometry] | None = None,
     ) -> tuple[list[DetectionInstance], int, int, int, int, int]:
         for track in self._tracks.values():
             track.missed_frames += 1
 
         candidates: list[tuple[float, int, int]] = []
         for item_index, item in enumerate(instances):
+            geometry = (
+                geometries.get(id(item))
+                if geometries is not None
+                else _measure_mask(item.mask, item.bbox_xyxy_px)
+            )
             for track_id, track in self._tracks.items():
-                score = self._association_score(track, item, width, height)
+                score = self._association_score(
+                    track, item, width, height, geometry
+                )
                 if score is not None:
                     candidates.append((score, item_index, track_id))
         candidates.sort(reverse=True)
@@ -428,9 +680,14 @@ class DetectionPostprocessor:
         switches = 0
         output: list[DetectionInstance] = []
         for item_index, item in enumerate(instances):
+            geometry = (
+                geometries.get(id(item))
+                if geometries is not None
+                else _measure_mask(item.mask, item.bbox_xyxy_px)
+            )
             track = item_to_track.get(item_index)
             if track is None:
-                track = self._new_track(item)
+                track = self._new_track(item, geometry)
                 created += 1
                 output.append(item)
                 continue
@@ -439,7 +696,7 @@ class DetectionPostprocessor:
                 overridden,
                 switched,
                 raw_class_transition,
-            ) = self._update_track(track, item)
+            ) = self._update_track(track, item, geometry)
             output.append(stabilized)
             matched += 1
             raw_transitions += int(raw_class_transition)
@@ -458,7 +715,38 @@ class DetectionPostprocessor:
         """Return a new batch after configured ROI and temporal processing."""
         filtered = self._filter_class_confidence(batch.instances)
         class_confidence_rejected = len(batch.instances) - len(filtered)
-        filtered = self._filter_roi(replace(batch, instances=filtered))
+        cleanup_started = time.perf_counter()
+        cleanup_modified = 0
+        components_removed = 0
+        component_pixels_removed = 0
+        geometries: dict[int, _MaskGeometry] | None = None
+        if self.config.small_component_cleanup.enabled:
+            geometries = {}
+            cleaned_instances: list[DetectionInstance] = []
+            for item in filtered:
+                cleaned, geometry, removed, removed_pixels = (
+                    self._cleanup_small_components(item)
+                )
+                cleaned_instances.append(cleaned)
+                geometries[id(cleaned)] = geometry
+                cleanup_modified += int(cleaned is not item)
+                components_removed += removed
+                component_pixels_removed += removed_pixels
+            filtered = cleaned_instances
+        cleanup_ms = (time.perf_counter() - cleanup_started) * 1000.0
+        need_geometry = (
+            self.config.small_component_cleanup.enabled
+            or self.config.workspace_roi.enabled
+            or self.config.temporal_class.enabled
+        )
+        if need_geometry and geometries is None:
+            geometries = {
+                id(item): _measure_mask(item.mask, item.bbox_xyxy_px)
+                for item in filtered
+            }
+        filtered = self._filter_roi(
+            replace(batch, instances=filtered), geometries
+        )
         roi_rejected = (
             len(batch.instances) - class_confidence_rejected - len(filtered)
         )
@@ -471,7 +759,12 @@ class DetectionPostprocessor:
                 raw_transitions,
                 overrides,
                 switches,
-            ) = self._stabilize(filtered, batch.image_width, batch.image_height)
+            ) = self._stabilize(
+                filtered,
+                batch.image_width,
+                batch.image_height,
+                geometries,
+            )
         output = DetectionBatch(
             image_width=batch.image_width,
             image_height=batch.image_height,
@@ -484,6 +777,7 @@ class DetectionPostprocessor:
             "enabled": bool(
                 self._class_confidence_thresholds
                 or self.config.default_class_confidence_threshold > 0.0
+                or self.config.small_component_cleanup.enabled
                 or self.config.workspace_roi.enabled
                 or self.config.temporal_class.enabled
             ),
@@ -491,6 +785,19 @@ class DetectionPostprocessor:
             "class_confidence_rejected_instances": (
                 class_confidence_rejected
             ),
+            "component_cleanup_enabled": (
+                self.config.small_component_cleanup.enabled
+            ),
+            "component_cleanup_minimum_area_px": (
+                self.config.small_component_cleanup.minimum_area_px
+            ),
+            "component_cleanup_minimum_area_ratio": (
+                self.config.small_component_cleanup.minimum_area_ratio
+            ),
+            "component_cleanup_latency_ms": cleanup_ms,
+            "component_cleanup_modified_instances": cleanup_modified,
+            "small_components_removed": components_removed,
+            "small_component_pixels_removed": component_pixels_removed,
             "roi_rejected_instances": roi_rejected,
             "output_instances": len(output.instances),
             "active_tracks": len(self._tracks),

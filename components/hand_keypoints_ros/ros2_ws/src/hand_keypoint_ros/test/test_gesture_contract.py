@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from types import SimpleNamespace
 import warnings
 
@@ -7,8 +8,10 @@ from hand_keypoint_ros.core import (
     CANNED_GESTURE_NAMES,
     GESTURE_OUTPUT_NAMES,
     gesture_rows_from_result,
+    inference_crop_box,
     normalize_canned_gesture,
     process_frame,
+    remap_result_landmarks,
     sample_depth_batch,
 )
 from hand_keypoint_ros.topview_gesture import (
@@ -20,6 +23,9 @@ from hand_keypoint_ros.topview_gesture import (
     OUTPUT_NAMES,
     RIGHT_EE_CLASSIFIER_VERSION,
     classify,
+)
+from hand_keypoint_ros.hand_detection_node import (
+    newest_ready_synced_message_id,
 )
 
 
@@ -38,6 +44,26 @@ def test_official_contract_has_seven_positive_classes_and_none_rejection():
         'ILoveYou',
     )
     assert GESTURE_OUTPUT_NAMES == ('None',) + CANNED_GESTURE_NAMES
+
+
+def test_parallel_join_uses_newest_ready_pair_without_chasing_latest_sync():
+    stamp_1 = (11, 100, 'cam_4')
+    stamp_2 = (11, 200, 'cam_4')
+    pending = OrderedDict((
+        (101, (stamp_1, 1, object(), object(), object())),
+        (202, (stamp_2, 2, object(), object(), object())),
+    ))
+    recognitions = OrderedDict((
+        (101, (stamp_1, object(), object(), 4.0, ('delivery', 1))),
+    ))
+
+    # Frame 1 remains processable while synchronized frame 2 is waiting for
+    # its inference result; the old single-slot join returned no work here.
+    assert newest_ready_synced_message_id(pending, recognitions) == 101
+
+    recognitions[202] = (
+        stamp_2, object(), object(), 4.0, ('delivery', 2))
+    assert newest_ready_synced_message_id(pending, recognitions) == 202
 
 
 def test_topview_public_contract_has_two_positive_classes_and_none_rejection():
@@ -194,6 +220,30 @@ def _fake_result(*, include_gesture, points=None, world_points=None):
     if world_points is not None:
         result.hand_world_landmarks = [_as_world_landmarks(world_points)]
     return result
+
+
+def test_padded_inference_roi_is_clipped_and_full_frame_is_elided():
+    assert inference_crop_box(
+        (720, 1280, 3), (0.446094, 0.825, 0.108333, 0.741667), 0.08,
+    ) == (468, 20, 1159, 592)
+    assert inference_crop_box(
+        (720, 1280, 3), (0.0, 1.0, 0.0, 1.0), 0.08,
+    ) is None
+
+
+def test_crop_landmarks_are_remapped_to_original_pixel_grid():
+    result = SimpleNamespace(hand_landmarks=[[
+        SimpleNamespace(x=0.0, y=0.0, z=0.0),
+        SimpleNamespace(x=1.0, y=1.0, z=0.0),
+        SimpleNamespace(x=0.5, y=0.5, z=0.0),
+    ]])
+    remap_result_landmarks(result, (320, 120, 960, 600), (720, 1280, 3))
+    points = [(row.x, row.y) for row in result.hand_landmarks[0]]
+    np.testing.assert_allclose(points, [
+        (0.25, 1.0 / 6.0),
+        (0.75, 5.0 / 6.0),
+        (0.5, 0.5),
+    ])
 
 
 def _run_fake_backend(backend):

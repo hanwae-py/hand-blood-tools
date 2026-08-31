@@ -9,10 +9,12 @@ cannot freeze or ghost the video from another worker.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import json
 import math
 from pathlib import Path
+import threading
 import time
 from typing import Any
 
@@ -663,6 +665,17 @@ class PanelOutput:
 
 
 @dataclass
+class PanelEncodeSlot:
+    """One overwrite-only JPEG job slot for an operator panel."""
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    scheduled_signature: tuple[Any, ...] | None = None
+    pending: tuple[Any, ...] | None = None
+    running: bool = False
+    coalesced: int = 0
+
+
+@dataclass
 class RightEePalmDisplayFilter:
     """Display-only temporal filter for the right end-effector palm HUD.
 
@@ -853,6 +866,17 @@ class FinalOverlayCompositor(Node):
         self._last_panel_outputs: dict[str, PanelOutput] = {
             panel: PanelOutput() for panel in PANEL_NAMES
         }
+        self._panel_encode_slots = {
+            panel: PanelEncodeSlot() for panel in PANEL_NAMES
+        }
+        self._panel_encode_executor = (
+            ThreadPoolExecutor(
+                max_workers=self._panel_encode_workers,
+                thread_name_prefix='final-overlay-jpeg',
+            )
+            if self._async_panel_encoding and self._enable_per_view_output
+            else None
+        )
 
         # The legacy 2x2 topic is optional at runtime.  The operator viewer
         # normally subscribes directly to the four native-resolution outputs
@@ -936,6 +960,9 @@ class FinalOverlayCompositor(Node):
             f'{self._output_topic if self._enable_composite_output else "disabled"}; '
             f'per_view_outputs={self._panel_output_topics if self._enable_per_view_output else "disabled"}; '
             f'per_view_native={self._per_view_native_resolution}; '
+            f'panel_encoding={"latest-parallel" if self._panel_encode_executor else "inline"}; '
+            f'panel_encode_workers={self._panel_encode_workers}; '
+            f'opencv_threads={cv2.getNumThreads()}; '
             f'suction={self._suction_color_topic}; '
             f'suction_blood={self._suction_blood_overlay_topic}; '
             f'suction_blood_mask={self._suction_blood_mask_topic}; '
@@ -1027,6 +1054,9 @@ class FinalOverlayCompositor(Node):
         # Per-view overlays preserve the ingress image dimensions.  The
         # 2x2 legacy stream, when enabled, may still use ``panel_*`` sizing.
         self.declare_parameter('per_view_native_resolution', True)
+        self.declare_parameter('async_panel_encoding', True)
+        self.declare_parameter('panel_encode_workers', 4)
+        self.declare_parameter('opencv_num_threads', 1)
         self.declare_parameter('output_rate_hz', 10.0)
         self.declare_parameter('status_rate_hz', 2.0)
         self.declare_parameter('max_base_age_sec', 1.0)
@@ -1181,6 +1211,14 @@ class FinalOverlayCompositor(Node):
         self._jpeg_quality = max(20, min(100, int(self.get_parameter('jpeg_quality').value)))
         self._per_view_native_resolution = bool(
             self.get_parameter('per_view_native_resolution').value)
+        self._async_panel_encoding = bool(
+            self.get_parameter('async_panel_encoding').value)
+        self._panel_encode_workers = max(
+            1, min(4, int(self.get_parameter('panel_encode_workers').value)))
+        self._opencv_num_threads = max(
+            1, min(8, int(self.get_parameter('opencv_num_threads').value)))
+        cv2.setUseOptimized(True)
+        cv2.setNumThreads(self._opencv_num_threads)
         self._per_view_jpeg_quality = max(
             20, min(100, int(self.get_parameter('per_view_jpeg_quality').value)))
         self._pose_axis_length_m = max(0.001, float(self.get_parameter('pose_axis_length_m').value))
@@ -1194,7 +1232,20 @@ class FinalOverlayCompositor(Node):
         self._update_external_image(self._suction_base, message)
 
     def _on_suction_overlay(self, message: CompressedImage) -> None:
-        self._update_external_image(self._suction_overlay, message)
+        # The final suction view renders the typed mask over current raw RGB;
+        # decoding the worker's older full-raster overlay was pure overhead.
+        # Retain its source/freshness metadata for diagnostics without ever
+        # decoding pixels that are deliberately not displayed.
+        state = self._suction_overlay
+        state.received += 1
+        try:
+            source_stamp = stamp_ns(message)
+        except (AttributeError, TypeError, ValueError):
+            state.dropped += 1
+            return
+        state.message = message
+        state.source_stamp_ns = source_stamp
+        state.freshness = Freshness(time.monotonic())
 
     def _on_right_ee_base(self, message: CompressedImage) -> None:
         self._update_external_image(self._right_ee_base, message)
@@ -1295,7 +1346,6 @@ class FinalOverlayCompositor(Node):
         states = [
             *self._base.values(),
             getattr(self, '_suction_base', None),
-            getattr(self, '_suction_overlay', None),
             getattr(self, '_right_ee_base', None),
         ]
         for state in states:
@@ -1541,68 +1591,40 @@ class FinalOverlayCompositor(Node):
     def _camera_panel_signature(
         self, camera: str, context: dict[str, Any],
     ) -> tuple[Any, ...]:
-        """Describe exactly the inputs that can change one camera panel."""
+        """Drive publication from the newest base frame, not layer churn.
+
+        Tool/Hand results often arrive between two RGB frames. Publishing
+        again for each of those callbacks repeats the same large JPEG with an
+        older camera timestamp and can exceed the camera rate substantially.
+        The next RGB frame is at most one camera period away and renders the
+        newest drawable layers, preserving all annotations while keeping the
+        operator stream latest-only.
+        """
         base_state = context['base_state']
         if base_state != 'live':
             return ('base', base_state)
-        signature: list[Any] = ['live', self._base[camera].source_stamp_ns]
-        for name in LAYER_NAMES:
-            decision = context['layers'][name]
-            signature.extend((
-                name,
-                decision.state,
-                decision.drawable,
-                self._layers[camera][name].source_stamp_ns
-                if decision.drawable else None,
-            ))
-        if camera == 'cam_4':
-            for name in ('gesture', 'facing', 'cam4_palm_pose'):
-                decision = context[name]
-                state = (
-                    self._gesture if name == 'gesture'
-                    else self._facing if name == 'facing'
-                    else getattr(self, '_cam4_palm_pose', LatestLayer())
-                )
-                signature.extend((
-                    name,
-                    decision.state,
-                    decision.drawable,
-                    state.source_stamp_ns if decision.drawable else None,
-                ))
-        return tuple(signature)
+        return ('live', self._base[camera].source_stamp_ns)
 
     def _suction_panel_signature(
         self, context: dict[str, Any],
     ) -> tuple[Any, ...]:
-        """Describe the source RGB and mask that are actually rendered."""
+        """Publish one newest annotated suction panel per source RGB frame."""
         if context['base_state'] != 'live':
             return ('base', context['base_state'])
-        mask = getattr(self, '_suction_mask', LatestLayer())
         return (
             'live',
             getattr(self, '_suction_base', LatestBase()).source_stamp_ns,
-            context['mask_state'],
-            context['mask_drawable'],
-            mask.source_stamp_ns if context['mask_drawable'] else None,
         )
 
     def _right_ee_panel_signature(
         self, context: dict[str, Any],
     ) -> tuple[Any, ...]:
-        """Describe the RGB/skeleton/gesture inputs of the right-EE panel."""
+        """Publish one newest annotated right-EE panel per source RGB frame."""
         if context['base_state'] != 'live':
             return ('base', context['base_state'])
-        hand = getattr(self, '_right_ee_hand', LatestLayer())
-        gesture = getattr(self, '_right_ee_gesture', LatestLayer())
         return (
             'live',
             getattr(self, '_right_ee_base', LatestBase()).source_stamp_ns,
-            context['hand_state'],
-            context['hand_drawable'],
-            hand.source_stamp_ns if context['hand_drawable'] else None,
-            context['gesture_state'],
-            context['gesture_drawable'],
-            gesture.source_stamp_ns if context['gesture_drawable'] else None,
         )
 
     def _panel_source_header(
@@ -1669,6 +1691,71 @@ class FinalOverlayCompositor(Node):
         self._last_panel_signatures = signatures
         self._last_panel_source_headers = headers
         return output
+
+    def _panel_target_signature(self, panel: str) -> tuple[Any, ...] | None:
+        """Return the newest published-or-scheduled state for one panel."""
+        executor = getattr(self, '_panel_encode_executor', None)
+        slots = getattr(self, '_panel_encode_slots', {})
+        slot = slots.get(panel)
+        if executor is None or not isinstance(slot, PanelEncodeSlot):
+            return getattr(self, '_last_panel_signatures', {}).get(panel)
+        with slot.lock:
+            return slot.scheduled_signature
+
+    def _schedule_panel_encode(
+        self,
+        panel: str,
+        image: np.ndarray,
+        signature: tuple[Any, ...],
+        source_header: Any | None,
+    ) -> bool:
+        """Schedule only the newest JPEG job; never build an encoder FIFO."""
+        executor = getattr(self, '_panel_encode_executor', None)
+        slot = getattr(self, '_panel_encode_slots', {}).get(panel)
+        if executor is None or not isinstance(slot, PanelEncodeSlot):
+            return False
+        with slot.lock:
+            if slot.scheduled_signature == signature:
+                return True
+            slot.scheduled_signature = signature
+            if slot.pending is not None:
+                slot.coalesced += 1
+            slot.pending = (image, signature, source_header)
+            if slot.running:
+                return True
+            slot.running = True
+        executor.submit(self._panel_encode_loop, panel)
+        return True
+
+    def _panel_encode_loop(self, panel: str) -> None:
+        """Drain one per-panel latest slot on a dedicated JPEG worker."""
+        slot = self._panel_encode_slots[panel]
+        while True:
+            with slot.lock:
+                job = slot.pending
+                slot.pending = None
+                if job is None:
+                    slot.running = False
+                    return
+            image, signature, source_header = job
+            output = self._publish_panel_if_changed(
+                panel, image, signature, source_header)
+            if output is not None:
+                self._record_panel_output(
+                    panel, output, image, time.monotonic())
+                continue
+            # Allow a retry if this exact job failed and no newer source state
+            # has replaced it while JPEG encoding was in progress.
+            with slot.lock:
+                already_published = (
+                    getattr(self, '_last_panel_signatures', {}).get(panel)
+                    == signature
+                )
+                if (
+                    not already_published
+                    and slot.scheduled_signature == signature
+                ):
+                    slot.scheduled_signature = None
 
     def _record_panel_output(
         self, panel: str, output: CompressedImage, image: np.ndarray, now: float,
@@ -1752,11 +1839,10 @@ class FinalOverlayCompositor(Node):
             )
         )
         panel_publishers = getattr(self, '_panel_image_publishers', {})
-        last_panel_signatures = getattr(self, '_last_panel_signatures', {})
         changed_panels = tuple(
             panel for panel in PANEL_NAMES
             if panel in panel_publishers
-            and panel_signatures[panel] != last_panel_signatures.get(panel)
+            and panel_signatures[panel] != self._panel_target_signature(panel)
         )
         publish_panel = bool(changed_panels)
         if not publish_composite and not publish_panel:
@@ -1785,12 +1871,20 @@ class FinalOverlayCompositor(Node):
         } if publish_composite or not per_view_native else {}
         per_view_images = native_panels if per_view_native else panels
         for panel in changed_panels:
+            source_header = self._panel_source_header(
+                panel, contexts, suction_context, right_ee_context)
+            if self._schedule_panel_encode(
+                panel,
+                per_view_images[panel],
+                panel_signatures[panel],
+                source_header,
+            ):
+                continue
             output = self._publish_panel_if_changed(
                 panel,
                 per_view_images[panel],
                 panel_signatures[panel],
-                self._panel_source_header(
-                    panel, contexts, suction_context, right_ee_context),
+                source_header,
             )
             if output is not None:
                 self._record_panel_output(
@@ -1966,7 +2060,6 @@ class FinalOverlayCompositor(Node):
         overlay_state = freshness_state(
             has_value=(
                 suction_overlay.message is not None
-                and suction_overlay.image is not None
             ),
             age_sec=suction_overlay.freshness.age(now),
             max_age_sec=self._max_layer_age_sec,
@@ -2554,6 +2647,13 @@ class FinalOverlayCompositor(Node):
                 'layers': layers,
             }
         self._status_publisher.publish(String(data=json.dumps(payload, separators=(',', ':'))))
+
+    def destroy_node(self) -> bool:
+        executor = getattr(self, '_panel_encode_executor', None)
+        self._panel_encode_executor = None
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+        return super().destroy_node()
 
 
 def main(args: list[str] | None = None) -> None:

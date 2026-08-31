@@ -17,6 +17,7 @@ from .depth_registration import (
 from .detection_postprocessing import (
     DetectionPostprocessor,
     DetectionPostprocessorConfig,
+    SmallComponentCleanupConfig,
     TemporalClassConfig,
     WorkspaceRoiConfig,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "DetectionInstance",
     "DetectionPostprocessor",
     "DetectionPostprocessorConfig",
+    "SmallComponentCleanupConfig",
     "DetectorConfig",
     "decode_compressed_depth_16uc1",
     "DepthRegistrationResult",
