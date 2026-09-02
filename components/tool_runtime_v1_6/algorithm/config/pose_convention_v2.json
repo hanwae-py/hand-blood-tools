@@ -45,7 +45,7 @@
       "name": "Adson Forceps",
       "negative_y_endpoint": "proximal joined-end center",
       "positive_y_endpoint": "tweezer-tip midpoint",
-      "initial_sign_estimator": "two separated terminal jaw components identify the working tip when visible; CAM3 and CAM4 may additionally use a strongly expanded terminal width for merged face-on tips; otherwise the stronger terminal taper identifies the working tip; ambiguous masks use the smaller terminal mass with low-confidence status"
+      "initial_sign_estimator": "first classify the whole-mask placement: an approximately linear and monotonically widening triangular silhouette uses its wider end as the working tip even when the jaw gap is faint; non-triangular or slender layouts then use separated-jaw evidence followed by terminal taper; ambiguous masks use the smaller terminal mass with low-confidence status"
     },
     {
       "canonical_id": 5,
@@ -53,7 +53,7 @@
       "name": "Bipolar Forceps",
       "negative_y_endpoint": "rigid proximal connector center",
       "positive_y_endpoint": "electrode-tip midpoint",
-      "initial_sign_estimator": "colour and external wire geometry are ignored; the stronger terminal taper identifies the connector handle; ambiguous masks use the larger terminal mass with low-confidence status",
+      "initial_sign_estimator": "a non-hierarchical signed-vote ensemble combines connector taper (0.45), dark proximal colour (0.40 when available), and terminal mass (0.15); external wire geometry remains excluded; low ensemble confidence is reported instead of forcing a reliable sign",
       "excluded_geometry": ["cable", "hand"]
     },
     {

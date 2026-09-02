@@ -5,13 +5,13 @@
     workspace_roi_profile: cam4_live_mayo
     workspace_roi_enabled: true
     workspace_roi_polygon_norm_xy:
-    - 0.427344
-    - 0.225
-    - 0.690625
-    - 0.209722
-    - 0.70625
-    - 0.718056
-    - 0.435156
-    - 0.761111
+    - 0.445312
+    - 0.276389
+    - 0.68125
+    - 0.290278
+    - 0.671875
+    - 0.809722
+    - 0.445312
+    - 0.806944
     workspace_roi_minimum_mask_overlap: 0.7
     workspace_roi_require_mask_centroid_inside: true

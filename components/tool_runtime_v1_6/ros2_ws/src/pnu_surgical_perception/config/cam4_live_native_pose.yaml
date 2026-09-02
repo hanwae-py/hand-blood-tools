@@ -68,9 +68,10 @@
     temporal_association_maximum_centroid_distance_norm: 0.06
     temporal_association_maximum_mask_area_ratio: 3.0
     temporal_track_max_missed_frames: 3
-    # Test mode: use the previous per-class endpoint sign policy.
+    # Use anatomy/layout-based endpoint signs for each canonical tool class.
     positive_y_image_direction: "class_based"
-    # Match CAM3: identify merged face-on Adson jaws by terminal width ratio.
+    # Compatibility parameter; whole-mask Adson layout classification is now
+    # always active in class_based mode.
     adson_face_on_width_enabled: true
     pose_axis_length_m: 0.05
     optimize_for_inference: true
@@ -151,3 +152,10 @@
     tf_position_relocation_confirmation_frames: 2
     tf_position_relocation_consistency_m: 0.015
     tf_position_max_missed_frames: 3
+    # Class-independent +Y sign stabilization for every surgical tool TF.
+    # A sudden opposite-axis result must persist for three consistent frames.
+    tf_axis_stabilization_enabled: true
+    tf_axis_flip_confirmation_frames: 3
+    tf_axis_flip_dot_threshold: 0.0
+    tf_axis_pending_consistency_dot: 0.85
+    tf_axis_max_missed_frames: 3

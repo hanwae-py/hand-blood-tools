@@ -159,15 +159,20 @@ def test_bipolar_working_endpoint_points_to_tip_for_case_shapes(
 
 
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_bipolar_black_endpoint_is_ignored(quarter_turns: int) -> None:
+def test_bipolar_dark_endpoint_contributes_to_ensemble(quarter_turns: int) -> None:
     mask = np.zeros((52, 144), dtype=np.uint8)
     mask[10:42, 10:134] = 1
     image = np.full((*mask.shape, 3), 180, dtype=np.uint8)
     image[mask.astype(bool)] = (170, 170, 170)
     image[10:42, 10:46] = (20, 20, 20)
+    dark_handle_uv = np.array((10.0, 25.5))
+    working_tip_uv = np.array((133.0, 25.5))
     for _ in range(quarter_turns):
+        old_width = mask.shape[1]
         mask = np.rot90(mask).copy()
         image = np.rot90(image).copy()
+        dark_handle_uv = _rotate_uv_90_ccw(dark_handle_uv, old_width)
+        working_tip_uv = _rotate_uv_90_ccw(working_tip_uv, old_width)
 
     endpoints = _pca_endpoints(
         mask.astype(bool),
@@ -175,11 +180,20 @@ def test_bipolar_black_endpoint_is_ignored(quarter_turns: int) -> None:
         image_bgr=image,
     )
 
-    assert endpoints["sign_source"] == "bipolar_taper_fallback"
-    assert endpoints["sign_confidence"] == pytest.approx(0.0)
+    evidence = endpoints["sign_evidence"]
+    assert endpoints["sign_source"] == "bipolar_ensemble"
+    assert evidence["colour_available"]
+    assert abs(evidence["colour_vote"]) == pytest.approx(1.0)
+    assert np.linalg.norm(
+        endpoints["handle_uv"] - dark_handle_uv
+    ) < np.linalg.norm(endpoints["working_uv"] - dark_handle_uv)
+    assert np.linalg.norm(
+        endpoints["working_uv"] - working_tip_uv
+    ) < np.linalg.norm(endpoints["handle_uv"] - working_tip_uv)
+    assert endpoints["sign_confidence"] == pytest.approx(0.40)
 
 
-def test_bipolar_nonblack_endpoint_falls_back_to_taper() -> None:
+def test_bipolar_nonblack_endpoint_abstains_from_colour_vote() -> None:
     mask = _rectangle_mask()
     image = np.full((*mask.shape, 3), 170, dtype=np.uint8)
     image[10:30, 20:35] = (100, 100, 100)
@@ -190,11 +204,13 @@ def test_bipolar_nonblack_endpoint_falls_back_to_taper() -> None:
         image_bgr=image,
     )
 
-    assert endpoints["sign_source"] == "bipolar_taper_fallback"
+    assert endpoints["sign_source"] == "bipolar_ensemble"
+    assert not endpoints["sign_evidence"]["colour_available"]
+    assert endpoints["sign_evidence"]["colour_vote"] == pytest.approx(0.0)
     assert endpoints["sign_confidence"] == pytest.approx(0.0)
 
 
-def test_bipolar_colour_and_external_wire_are_ignored() -> None:
+def test_bipolar_uses_colour_but_ignores_external_wire() -> None:
     mask = np.zeros((100, 200), dtype=np.uint8)
     mask[40:61, 60:121] = 1
     image = np.full((*mask.shape, 3), (170, 105, 35), dtype=np.uint8)
@@ -216,8 +232,42 @@ def test_bipolar_colour_and_external_wire_are_ignored() -> None:
         image_bgr=image,
     )
 
-    assert endpoints["sign_source"] == "bipolar_taper_fallback"
-    assert endpoints["sign_confidence"] == pytest.approx(0.0)
+    evidence = endpoints["sign_evidence"]
+    assert endpoints["sign_source"] == "bipolar_ensemble"
+    assert evidence["colour_available"]
+    assert evidence["colour_vote"] < 0.0
+    assert endpoints["working_uv"][0] > endpoints["handle_uv"][0]
+
+
+def test_bipolar_ensemble_fuses_votes_by_weighted_sum() -> None:
+    fixture = _BIPOLAR_CASE_FIXTURES["0704_9_55s_straight"]
+    contour = np.asarray(fixture["contour"], dtype=np.int32)
+    mask = np.zeros(
+        (int(contour[:, 1].max()) + 1, int(contour[:, 0].max()) + 1),
+        dtype=np.uint8,
+    )
+    __import__("cv2").fillPoly(mask, [contour], 1)
+    image = np.full((*mask.shape, 3), 170, dtype=np.uint8)
+    # Inject a dark cue at one endpoint so colour, taper and mass are all
+    # represented in the final score rather than selected by an if/elif chain.
+    image[:, : max(12, mask.shape[1] // 5)] = (15, 15, 15)
+    image[~mask.astype(bool)] = 170
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    evidence = endpoints["sign_evidence"]
+    assert evidence["colour_available"]
+    expected = (
+        0.45 * evidence["taper_vote"]
+        + 0.40 * evidence["colour_vote"]
+        + 0.15 * evidence["mass_vote"]
+    )
+    assert evidence["score"] == pytest.approx(expected)
+    assert endpoints["sign_confidence"] == pytest.approx(abs(expected))
 
 
 @pytest.mark.parametrize("quarter_turns", range(4))
@@ -236,24 +286,27 @@ def test_adson_single_tip_taper_points_to_working_tip(quarter_turns: int) -> Non
         tip_uv = _rotate_uv_90_ccw(tip_uv, old_width)
         handle_uv = _rotate_uv_90_ccw(handle_uv, old_width)
 
-    assert _sign_policy("Adson Forceps") == "smaller_end_is_handle"
+    assert _sign_policy("Adson Forceps") == "adson_layout_shape"
     endpoints = _pca_endpoints(
         mask.astype(bool),
         "adson_shape",
     )
-    assert endpoints["sign_source"] == "adson_tip_taper"
-    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
-        endpoints["handle_uv"] - tip_uv
+    assert endpoints["sign_source"] == "adson_triangular_wide_tip"
+    # The new placement policy intentionally uses the broad end of a global
+    # triangular silhouette as the working side, even when a faint/narrow
+    # terminal taper would have selected the opposite endpoint previously.
+    assert np.linalg.norm(endpoints["working_uv"] - handle_uv) < np.linalg.norm(
+        endpoints["handle_uv"] - handle_uv
     )
-    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
-        endpoints["working_uv"] - handle_uv
+    assert np.linalg.norm(endpoints["handle_uv"] - tip_uv) < np.linalg.norm(
+        endpoints["working_uv"] - tip_uv
     )
     assert endpoints["sign_confidence"] >= 0.2
 
 
 @pytest.mark.parametrize("fixture_name", _ADSON_CASE_FIXTURES)
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_adson_recorded_contours_keep_working_tip_direction(
+def test_adson_recorded_contours_follow_layout_shape_direction(
     fixture_name: str,
     quarter_turns: int,
 ) -> None:
@@ -276,17 +329,23 @@ def test_adson_recorded_contours_keep_working_tip_direction(
         "adson_shape",
     )
 
-    assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
-        endpoints["handle_uv"] - tip_uv
-    )
-    assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
-        endpoints["working_uv"] - handle_uv
-    )
+    if endpoints["sign_source"] == "adson_triangular_wide_tip":
+        layout = endpoints["sign_evidence"]["layout"]
+        assert layout["accepted"]
+        assert layout["layout"] == "TRIANGULAR_WIDE_TIP"
+        assert endpoints["sign_confidence"] >= 0.2
+    else:
+        assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
+            endpoints["handle_uv"] - tip_uv
+        )
+        assert np.linalg.norm(endpoints["handle_uv"] - handle_uv) < np.linalg.norm(
+            endpoints["working_uv"] - handle_uv
+        )
     assert endpoints["sign_confidence"] >= 0.2
 
 
 @pytest.mark.parametrize("quarter_turns", range(4))
-def test_adson_two_prong_endpoint_has_priority(quarter_turns: int) -> None:
+def test_adson_two_prong_is_used_after_layout_rejection(quarter_turns: int) -> None:
     mask = _adson_two_prong_mask()
     tip_uv = np.array((145.0, 25.5))
     handle_uv = np.array((10.0, 25.5))
@@ -329,7 +388,7 @@ def test_adson_width_recovers_merged_face_on_tip(
         "adson_face_on_shape",
     )
 
-    assert endpoints["sign_source"] == "adson_two_tip_width"
+    assert endpoints["sign_source"] == "adson_triangular_wide_tip"
     assert np.linalg.norm(endpoints["working_uv"] - tip_uv) < np.linalg.norm(
         endpoints["handle_uv"] - tip_uv
     )
@@ -339,14 +398,14 @@ def test_adson_width_recovers_merged_face_on_tip(
     assert endpoints["sign_confidence"] >= 0.3
 
 
-def test_adson_face_on_width_rule_is_opt_in() -> None:
+def test_adson_layout_rule_is_always_enabled_for_class_based_pose() -> None:
     default = PlanarPoseEstimator()
     cam3 = PlanarPoseEstimator(
         PlanarPoseConfig(adson_face_on_width_enabled=True)
     )
 
-    assert default._endpoint_sign_policy("Adson Forceps") == "smaller_end_is_handle"
-    assert cam3._endpoint_sign_policy("Adson Forceps") == "adson_face_on_shape"
+    assert default._endpoint_sign_policy("Adson Forceps") == "adson_layout_shape"
+    assert cam3._endpoint_sign_policy("Adson Forceps") == "adson_layout_shape"
     assert cam3._endpoint_sign_policy("Bovie") == "bovie_tip_taper"
 
 

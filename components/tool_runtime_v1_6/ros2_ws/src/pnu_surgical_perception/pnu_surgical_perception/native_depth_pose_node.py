@@ -576,6 +576,7 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('trt_request_timeout_sec', 10.0)
         self.declare_parameter('confidence_threshold', 0.3)
         self.declare_parameter('adson_forceps_confidence_threshold', -1.0)
+        self.declare_parameter('bovie_confidence_threshold', -1.0)
         self.declare_parameter('enable_class_agnostic_nms', False)
         self.declare_parameter('class_agnostic_nms_iou', 0.8)
         self.declare_parameter('mask_component_cleanup_enabled', True)
@@ -676,6 +677,11 @@ class NativeDepthPoseNode(Node):
             'tf_position_relocation_consistency_m', 0.015
         )
         self.declare_parameter('tf_position_max_missed_frames', 3)
+        self.declare_parameter('tf_axis_stabilization_enabled', False)
+        self.declare_parameter('tf_axis_flip_confirmation_frames', 3)
+        self.declare_parameter('tf_axis_flip_dot_threshold', 0.0)
+        self.declare_parameter('tf_axis_pending_consistency_dot', 0.85)
+        self.declare_parameter('tf_axis_max_missed_frames', 3)
 
     def _read_parameters(self) -> None:
         """Read and fail closed on incomplete metric geometry configuration."""
@@ -809,13 +815,25 @@ class NativeDepthPoseNode(Node):
             raise ValueError(
                 'adson_forceps_confidence_threshold must be -1 or in [0, 1]'
             )
+        self._bovie_confidence_threshold = float(
+            value('bovie_confidence_threshold')
+        )
+        if self._bovie_confidence_threshold != -1.0 and not (
+            0.0 <= self._bovie_confidence_threshold <= 1.0
+        ):
+            raise ValueError(
+                'bovie_confidence_threshold must be -1 or in [0, 1]'
+            )
+        enabled_class_thresholds = tuple(
+            threshold
+            for threshold in (
+                self._adson_forceps_confidence_threshold,
+                self._bovie_confidence_threshold,
+            )
+            if threshold >= 0.0
+        )
         self._inference_confidence_threshold = min(
-            self._confidence_threshold,
-            (
-                self._adson_forceps_confidence_threshold
-                if self._adson_forceps_confidence_threshold >= 0.0
-                else self._confidence_threshold
-            ),
+            (self._confidence_threshold, *enabled_class_thresholds)
         )
         self._enable_class_agnostic_nms = bool(
             value('enable_class_agnostic_nms')
@@ -1071,6 +1089,21 @@ class NativeDepthPoseNode(Node):
         self._tf_position_max_missed_frames = int(
             value('tf_position_max_missed_frames')
         )
+        self._tf_axis_stabilization_enabled = bool(
+            value('tf_axis_stabilization_enabled')
+        )
+        self._tf_axis_flip_confirmation_frames = int(
+            value('tf_axis_flip_confirmation_frames')
+        )
+        self._tf_axis_flip_dot_threshold = float(
+            value('tf_axis_flip_dot_threshold')
+        )
+        self._tf_axis_pending_consistency_dot = float(
+            value('tf_axis_pending_consistency_dot')
+        )
+        self._tf_axis_max_missed_frames = int(
+            value('tf_axis_max_missed_frames')
+        )
         self._tf_tracker = ToolSpatialTfSelector(
             max_tools_per_class=self._tf_track_max_active_per_class,
             reset_stamp_jump_sec=self._tf_track_reset_stamp_jump_sec,
@@ -1089,6 +1122,17 @@ class NativeDepthPoseNode(Node):
             position_max_missed_frames=(
                 self._tf_position_max_missed_frames
             ),
+            axis_stabilization_enabled=(
+                self._tf_axis_stabilization_enabled
+            ),
+            axis_flip_confirmation_frames=(
+                self._tf_axis_flip_confirmation_frames
+            ),
+            axis_flip_dot_threshold=self._tf_axis_flip_dot_threshold,
+            axis_pending_consistency_dot=(
+                self._tf_axis_pending_consistency_dot
+            ),
+            axis_max_missed_frames=self._tf_axis_max_missed_frames,
         )
 
         self._additional_status_flags: list[str] = []
@@ -1312,18 +1356,24 @@ class NativeDepthPoseNode(Node):
         )
         detector.load()
         self._detector = detector
+        class_confidence_thresholds = []
+        if self._adson_forceps_confidence_threshold >= 0.0:
+            class_confidence_thresholds.append((
+                'Adson Forceps',
+                self._adson_forceps_confidence_threshold,
+            ))
+        if self._bovie_confidence_threshold >= 0.0:
+            class_confidence_thresholds.append((
+                'Bovie',
+                self._bovie_confidence_threshold,
+            ))
         self._detection_postprocessor = DetectionPostprocessor(
             DetectionPostprocessorConfig(
                 default_class_confidence_threshold=(
                     self._confidence_threshold
                 ),
-                class_confidence_thresholds=(
-                    ((
-                        'Adson Forceps',
-                        self._adson_forceps_confidence_threshold,
-                    ),)
-                    if self._adson_forceps_confidence_threshold >= 0.0
-                    else ()
+                class_confidence_thresholds=tuple(
+                    class_confidence_thresholds
                 ),
                 small_component_cleanup=SmallComponentCleanupConfig(
                     enabled=self._mask_component_cleanup_enabled,
@@ -2080,6 +2130,9 @@ class NativeDepthPoseNode(Node):
                 'adson_forceps_confidence_threshold': (
                     self._adson_forceps_confidence_threshold
                 ),
+                'bovie_confidence_threshold': (
+                    self._bovie_confidence_threshold
+                ),
                 'enable_class_agnostic_nms': self._enable_class_agnostic_nms,
                 'class_agnostic_nms_iou': self._class_agnostic_nms_iou,
                 'workspace_roi_enabled': self._workspace_roi_enabled,
@@ -2101,6 +2154,15 @@ class NativeDepthPoseNode(Node):
                 'tf_orientation_provenance': CONSTRAINED_SE3_PROVENANCE,
                 'tf_position_stabilization_enabled': (
                     self._tf_position_stabilization_enabled
+                ),
+                'tf_axis_stabilization_enabled': (
+                    self._tf_axis_stabilization_enabled
+                ),
+                'tf_axis_flip_held_total': (
+                    self._tf_tracker.axis_filter_flip_held_total
+                ),
+                'tf_axis_flip_confirmed_total': (
+                    self._tf_tracker.axis_filter_flip_confirmed_total
                 ),
                 'error_code': '',
             }

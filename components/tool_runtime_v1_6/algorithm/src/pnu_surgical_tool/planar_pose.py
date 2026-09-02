@@ -59,10 +59,21 @@ def _mask_coordinates_in_bbox(
     if crop_xs.size == 0:
         return np.nonzero(mask)
     return crop_ys + y0, crop_xs + x0
+
+
 ADSON_PRONG_MINIMUM_BALANCE = 0.35
 ADSON_PRONG_MINIMUM_ADVANTAGE = 0.25
-ADSON_FACE_ON_TERMINAL_FRACTION = 0.22
-ADSON_FACE_ON_MINIMUM_WIDTH_RATIO = 1.55
+ADSON_LAYOUT_PROFILE_BINS = 9
+ADSON_TRIANGLE_MINIMUM_WIDTH_RATIO = 1.40
+ADSON_TRIANGLE_MINIMUM_LINEARITY_R2 = 0.65
+ADSON_TRIANGLE_MINIMUM_MONOTONIC_FRACTION = 0.70
+ADSON_TRIANGLE_MINIMUM_RELATIVE_WIDTH_CHANGE = 0.35
+BIPOLAR_COLOUR_TERMINAL_FRACTION = 0.20
+BIPOLAR_BLACK_LAB_L_THRESHOLD = 90.0
+BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH = 0.05
+BIPOLAR_ENSEMBLE_TAPER_WEIGHT = 0.45
+BIPOLAR_ENSEMBLE_COLOUR_WEIGHT = 0.40
+BIPOLAR_ENSEMBLE_MASS_WEIGHT = 0.15
 
 
 def _external_wire_handle_evidence(
@@ -414,53 +425,271 @@ def _adson_terminal_prong_evidence(
     }
 
 
-def _adson_face_on_width_evidence(
-    mask: np.ndarray,
+def _adson_layout_shape_evidence(
     mean_uv: np.ndarray,
     direction_uv: np.ndarray,
     low: float,
     high: float,
-    mask_coordinates: tuple[np.ndarray, np.ndarray] | None = None,
+    mask_coordinates: tuple[np.ndarray, np.ndarray],
 ) -> dict[str, Any]:
-    """Detect the expanded silhouette of merged face-on Adson jaws."""
-    if mask_coordinates is None:
-        ys, xs = np.nonzero(mask)
-    else:
-        ys, xs = mask_coordinates
+    """Classify a whole-mask triangular Adson placement before jaw cues.
+
+    Face-on Adson masks often lose the faint gap between the two jaws.  The
+    useful cue then is not a pair of terminal connected components, but a
+    gradual, approximately triangular widening across the complete mask.  A
+    short tapered electrode/side-on tip widens abruptly and then stays nearly
+    parallel, so it should fail the global linearity test and continue to the
+    prong/taper rules.
+    """
+    ys, xs = mask_coordinates
     uv = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
     centered = uv - mean_uv
     projection = centered @ direction_uv
     transverse = centered @ np.array((-direction_uv[1], direction_uv[0]))
     span = max(float(high - low), 1e-6)
-    cap_length = ADSON_FACE_ON_TERMINAL_FRACTION * span
-    low_selection = projection <= low + cap_length
-    high_selection = projection >= high - cap_length
-
-    def robust_width(selection: np.ndarray) -> float:
+    edges = np.linspace(low, high, ADSON_LAYOUT_PROFILE_BINS + 1)
+    centres: list[float] = []
+    widths: list[float] = []
+    for index, (start, stop) in enumerate(
+        zip(edges[:-1], edges[1:], strict=True)
+    ):
+        selection = (projection >= start) & (
+            projection <= stop
+            if index == ADSON_LAYOUT_PROFILE_BINS - 1
+            else projection < stop
+        )
         values = transverse[selection]
-        if len(values) < 10:
-            return 0.0
-        return float(np.quantile(values, 0.95) - np.quantile(values, 0.05))
+        if len(values) < 8:
+            continue
+        centres.append(float((0.5 * (start + stop) - low) / span))
+        widths.append(
+            float(np.quantile(values, 0.95) - np.quantile(values, 0.05))
+        )
 
-    low_width = robust_width(low_selection)
-    high_width = robust_width(high_selection)
+    if len(widths) < max(6, ADSON_LAYOUT_PROFILE_BINS - 2):
+        return {
+            "accepted": False,
+            "layout": "INSUFFICIENT_WIDTH_PROFILE",
+            "tip_end": "low",
+            "confidence": 0.0,
+            "widths": tuple(widths),
+        }
+
+    profile_x = np.asarray(centres, dtype=np.float64)
+    profile_width = np.asarray(widths, dtype=np.float64)
+    slope, intercept = np.polyfit(profile_x, profile_width, 1)
+    fitted = slope * profile_x + intercept
+    residual = float(np.sum((profile_width - fitted) ** 2))
+    total = float(np.sum((profile_width - profile_width.mean()) ** 2))
+    linearity_r2 = max(0.0, 1.0 - residual / max(total, 1e-9))
+
+    low_width = float(np.mean(profile_width[:2]))
+    high_width = float(np.mean(profile_width[-2:]))
     wider_end = "low" if low_width >= high_width else "high"
     wider_width = max(low_width, high_width)
     narrower_width = min(low_width, high_width)
     width_ratio = wider_width / max(narrower_width, 1e-6)
-
+    oriented_differences = np.diff(profile_width)
+    if wider_end == "low":
+        oriented_differences *= -1.0
+    tolerance = 0.05 * max(float(profile_width.mean()), 1.0)
+    monotonic_fraction = float(np.mean(oriented_differences >= -tolerance))
+    relative_width_change = abs(high_width - low_width) / max(
+        float(profile_width.mean()), 1e-6
+    )
     accepted = bool(
         narrower_width > 1.0
-        and width_ratio >= ADSON_FACE_ON_MINIMUM_WIDTH_RATIO
+        and width_ratio >= ADSON_TRIANGLE_MINIMUM_WIDTH_RATIO
+        and linearity_r2 >= ADSON_TRIANGLE_MINIMUM_LINEARITY_R2
+        and monotonic_fraction >= ADSON_TRIANGLE_MINIMUM_MONOTONIC_FRACTION
+        and relative_width_change
+        >= ADSON_TRIANGLE_MINIMUM_RELATIVE_WIDTH_CHANGE
     )
-    confidence = 1.0 - narrower_width / max(wider_width, 1e-6)
+    width_confidence = 1.0 - narrower_width / max(wider_width, 1e-6)
+    confidence = (
+        0.45 * width_confidence
+        + 0.35 * linearity_r2
+        + 0.20 * monotonic_fraction
+    ) if accepted else 0.0
     return {
         "accepted": accepted,
+        "layout": "TRIANGULAR_WIDE_TIP" if accepted else "SLENDER_OR_NONTRIANGULAR",
         "tip_end": wider_end,
         "low_width": low_width,
         "high_width": high_width,
         "width_ratio": float(width_ratio),
+        "linearity_r2": linearity_r2,
+        "monotonic_fraction": monotonic_fraction,
+        "relative_width_change": relative_width_change,
+        "widths": tuple(float(value) for value in profile_width),
         "confidence": float(confidence),
+    }
+
+
+def _bipolar_colour_handle_evidence(
+    mask: np.ndarray,
+    image_bgr: np.ndarray,
+    mean_uv: np.ndarray,
+    direction_uv: np.ndarray,
+    low: float,
+    high: float,
+    mask_coordinates: tuple[np.ndarray, np.ndarray],
+) -> dict[str, Any]:
+    """Return a signed, abstaining colour vote for the Bipolar handle.
+
+    A positive vote means the high PCA endpoint is the dark proximal handle;
+    a negative vote means the low endpoint is the handle.  This function does
+    not select the endpoint by itself: the caller combines this vote with
+    taper and terminal-mass votes.
+    """
+    mask_ys, mask_xs = mask_coordinates
+    x0, x1 = int(mask_xs.min()), int(mask_xs.max()) + 1
+    y0, y1 = int(mask_ys.min()), int(mask_ys.max()) + 1
+    mask_crop = np.ascontiguousarray(mask[y0:y1, x0:x1], dtype=np.uint8)
+    eroded = cv2.erode(
+        mask_crop,
+        np.ones((3, 3), dtype=np.uint8),
+    ).astype(bool)
+    if int(np.count_nonzero(eroded)) < 50:
+        eroded = mask_crop.astype(bool)
+    ys, xs = np.nonzero(eroded)
+    ys += y0
+    xs += x0
+    if len(xs) < 20:
+        return {"available": False, "vote": 0.0, "confidence": 0.0}
+    uv = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
+    projection = (uv - mean_uv) @ direction_uv
+    span = max(float(high - low), 1e-6)
+    cap = BIPOLAR_COLOUR_TERMINAL_FRACTION * span
+    low_selection = projection <= low + cap
+    high_selection = projection >= high - cap
+    if (
+        int(np.count_nonzero(low_selection)) < 10
+        or int(np.count_nonzero(high_selection)) < 10
+    ):
+        return {"available": False, "vote": 0.0, "confidence": 0.0}
+
+    lab_l_crop = cv2.cvtColor(
+        image_bgr[y0:y1, x0:x1],
+        cv2.COLOR_BGR2LAB,
+    )[:, :, 0]
+    low_values = lab_l_crop[
+        ys[low_selection] - y0,
+        xs[low_selection] - x0,
+    ].astype(np.float64)
+    high_values = lab_l_crop[
+        ys[high_selection] - y0,
+        xs[high_selection] - x0,
+    ].astype(np.float64)
+    low_median = float(np.median(low_values))
+    high_median = float(np.median(high_values))
+    low_black_fraction = float(
+        np.mean(low_values <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
+    )
+    high_black_fraction = float(
+        np.mean(high_values <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
+    )
+
+    # Positive signs consistently mean "high endpoint is the handle".
+    median_vote = float(np.clip((low_median - high_median) / 30.0, -1.0, 1.0))
+    black_fraction_vote = float(np.clip(
+        (high_black_fraction - low_black_fraction) / 0.60,
+        -1.0,
+        1.0,
+    ))
+    darker_median = min(low_median, high_median)
+    darkness_strength = float(np.clip(
+        (BIPOLAR_BLACK_LAB_L_THRESHOLD - darker_median) / 25.0,
+        0.0,
+        1.0,
+    ))
+    black_strength = min(
+        max(low_black_fraction, high_black_fraction) / 0.60,
+        1.0,
+    )
+    colour_presence = max(darkness_strength, black_strength)
+    vote = float(np.clip(
+        (0.75 * median_vote + 0.25 * black_fraction_vote)
+        * colour_presence,
+        -1.0,
+        1.0,
+    ))
+    return {
+        "available": bool(
+            abs(vote) >= BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH
+        ),
+        "vote": vote,
+        "confidence": abs(vote),
+        "low_median_l": low_median,
+        "high_median_l": high_median,
+        "low_black_fraction": low_black_fraction,
+        "high_black_fraction": high_black_fraction,
+    }
+
+
+def _bipolar_ensemble_evidence(
+    mask: np.ndarray,
+    projection: np.ndarray,
+    low: float,
+    high: float,
+    low_mass: int,
+    high_mass: int,
+    mean_uv: np.ndarray,
+    direction_uv: np.ndarray,
+    image_bgr: np.ndarray | None,
+    mask_coordinates: tuple[np.ndarray, np.ndarray],
+) -> dict[str, Any]:
+    """Fuse taper, dark-colour and terminal-mass cues without precedence."""
+    low_taper, high_taper = _terminal_taper_scores(projection, low, high)
+    taper_separation = (high_taper - low_taper) / max(
+        high_taper + low_taper,
+        1e-6,
+    )
+    taper_strength = min(max(low_taper, high_taper) / 0.10, 1.0)
+    taper_vote = float(np.clip(
+        taper_separation * taper_strength,
+        -1.0,
+        1.0,
+    ))
+    mass_vote = float(np.clip(
+        (high_mass - low_mass) / max(high_mass + low_mass, 1),
+        -1.0,
+        1.0,
+    ))
+    colour = (
+        _bipolar_colour_handle_evidence(
+            mask,
+            image_bgr,
+            mean_uv,
+            direction_uv,
+            low,
+            high,
+            mask_coordinates,
+        )
+        if image_bgr is not None
+        else {"available": False, "vote": 0.0, "confidence": 0.0}
+    )
+
+    weighted_votes = [
+        (BIPOLAR_ENSEMBLE_TAPER_WEIGHT, taper_vote),
+        (BIPOLAR_ENSEMBLE_MASS_WEIGHT, mass_vote),
+    ]
+    if bool(colour["available"]):
+        weighted_votes.append((
+            BIPOLAR_ENSEMBLE_COLOUR_WEIGHT,
+            float(colour["vote"]),
+        ))
+    total_weight = sum(weight for weight, _vote in weighted_votes)
+    score = sum(weight * vote for weight, vote in weighted_votes) / total_weight
+    return {
+        "handle_end": "high" if score >= 0.0 else "low",
+        "score": float(score),
+        "confidence": abs(float(score)),
+        "taper_vote": taper_vote,
+        "mass_vote": mass_vote,
+        "colour_vote": float(colour["vote"]),
+        "colour_available": bool(colour["available"]),
+        "colour": colour,
     }
 
 
@@ -530,44 +759,47 @@ def _pca_endpoints(
             low, high = -high, -low
             low_mass, high_mass = high_mass, low_mass
         confidence = abs(high_mass - low_mass) / max(high_mass + low_mass, 1)
-    elif sign_policy in ("adson_shape", "adson_face_on_shape"):
-        prongs = _adson_terminal_prong_evidence(
-            mask,
-            ys,
-            xs,
-            projection,
+    elif sign_policy in (
+        "adson_shape",
+        "adson_face_on_shape",
+        "adson_layout_shape",
+    ):
+        layout = _adson_layout_shape_evidence(
+            mean,
+            direction,
             float(low),
             float(high),
+            (ys, xs),
         )
-        if prongs["accepted"]:
-            if prongs["tip_end"] == "high":
+        sign_evidence = {"layout": layout}
+        if layout["accepted"]:
+            if layout["tip_end"] == "high":
                 direction *= -1
                 low, high = -high, -low
                 low_mass, high_mass = high_mass, low_mass
-            confidence = float(prongs["confidence"])
-            sign_source = "adson_two_prong_tip"
+            confidence = float(layout["confidence"])
+            sign_source = "adson_triangular_wide_tip"
         else:
-            face_on = (
-                _adson_face_on_width_evidence(
-                    mask,
-                    mean,
-                    direction,
-                    float(low),
-                    float(high),
-                    mask_coordinates=mask_coordinates,
-                )
-                if sign_policy == "adson_face_on_shape"
-                else None
+            prongs = _adson_terminal_prong_evidence(
+                mask,
+                ys,
+                xs,
+                projection,
+                float(low),
+                float(high),
             )
-            if face_on is not None and face_on["accepted"]:
-                if face_on["tip_end"] == "high":
+            sign_evidence["prongs"] = prongs
+            if prongs["accepted"]:
+                if prongs["tip_end"] == "high":
                     direction *= -1
                     low, high = -high, -low
                     low_mass, high_mass = high_mass, low_mass
-                confidence = float(face_on["confidence"])
-                sign_source = "adson_two_tip_width"
+                confidence = float(prongs["confidence"])
+                sign_source = "adson_two_prong_tip"
             else:
                 low_taper, high_taper = _terminal_taper_scores(projection, low, high)
+                sign_evidence["low_taper"] = low_taper
+                sign_evidence["high_taper"] = high_taper
                 taper_strength = max(low_taper, high_taper)
                 if abs(low_taper - high_taper) < 1e-6:
                     # With no visible prong split, face-on evidence, or taper,
@@ -590,10 +822,27 @@ def _pca_endpoints(
                     )
                     confidence = taper_separation * min(taper_strength / 0.10, 1.0)
                     sign_source = "adson_tip_taper"
-    elif sign_policy in (
-        "bovie_tip_taper",
-        "bipolar_connector_taper",
-    ):
+    elif sign_policy == "bipolar_ensemble":
+        ensemble = _bipolar_ensemble_evidence(
+            mask,
+            projection,
+            float(low),
+            float(high),
+            low_mass,
+            high_mass,
+            mean,
+            direction,
+            image_bgr,
+            (ys, xs),
+        )
+        if ensemble["handle_end"] == "low":
+            direction *= -1
+            low, high = -high, -low
+            low_mass, high_mass = high_mass, low_mass
+        confidence = float(ensemble["confidence"])
+        sign_source = "bipolar_ensemble"
+        sign_evidence = ensemble
+    elif sign_policy == "bovie_tip_taper":
         wire = (
             _external_wire_handle_evidence(
                 mask,
@@ -604,7 +853,7 @@ def _pca_endpoints(
                 float(high),
                 mask_coordinates=mask_coordinates,
             )
-            if sign_policy == "bovie_tip_taper" and image_bgr is not None
+            if image_bgr is not None
             else None
         )
         if wire is not None and wire["accepted"]:
@@ -615,8 +864,6 @@ def _pca_endpoints(
             confidence = float(wire["confidence"])
             sign_source = "bovie_external_wire_handle"
         else:
-            if sign_policy == "bipolar_connector_taper":
-                sign_source = "bipolar_taper_fallback"
             low_taper, high_taper = _terminal_taper_scores(projection, low, high)
             taper_strength = max(low_taper, high_taper)
             if abs(low_taper - high_taper) < 1e-6:
@@ -629,12 +876,7 @@ def _pca_endpoints(
                     low_mass, high_mass = high_mass, low_mass
                 confidence = 0.0
             else:
-                stronger_taper_is_handle = sign_policy == "bipolar_connector_taper"
-                should_flip = (
-                    low_taper > high_taper
-                    if stronger_taper_is_handle
-                    else high_taper > low_taper
-                )
+                should_flip = high_taper > low_taper
                 if should_flip:
                     direction *= -1
                     low, high = -high, -low
@@ -662,6 +904,7 @@ def _pca_endpoints(
         ),
         "sign_confidence": float(confidence),
         "sign_source": sign_source,
+        "sign_evidence": locals().get("sign_evidence", {}),
     }
 
 
@@ -803,9 +1046,9 @@ def _sign_policy(class_name: str) -> str:
     if class_name == "Army-Navy Retractor":
         return "cam4_positive_axis"
     if class_name == "Adson Forceps":
-        return "smaller_end_is_handle"
+        return "adson_layout_shape"
     if class_name == "Bipolar Forceps":
-        return "bipolar_connector_taper"
+        return "bipolar_ensemble"
     if class_name == "Bovie":
         return "bovie_tip_taper"
     return "larger_end_is_handle"
@@ -819,7 +1062,9 @@ class PlanarPoseConfig:
     minimum_axis_anisotropy: float = 2.0
     minimum_endpoint_sign_confidence: float = 0.20
     positive_y_image_direction: str = "class_based"
-    adson_face_on_width_enabled: bool = False
+    # Retained for launch/API compatibility. Whole-mask Adson layout
+    # classification is now always active for class-based endpoint signs.
+    adson_face_on_width_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.positive_y_image_direction not in (
@@ -842,11 +1087,6 @@ class PlanarPoseEstimator:
 
     def _endpoint_sign_policy(self, class_name: str) -> str:
         if self.config.positive_y_image_direction == "class_based":
-            if (
-                class_name == "Adson Forceps"
-                and self.config.adson_face_on_width_enabled
-            ):
-                return "adson_face_on_shape"
             return _sign_policy(class_name)
         return f"positive_y_image_{self.config.positive_y_image_direction}"
 
@@ -1025,12 +1265,14 @@ class PlanarPoseEstimator:
             )
         if endpoint["sign_source"] == "bovie_external_wire_handle":
             flags.append("BOVIE_EXTERNAL_WIRE_HANDLE")
-        elif endpoint["sign_source"] == "bipolar_taper_fallback":
-            flags.append("BIPOLAR_TAPER_FALLBACK")
+        elif endpoint["sign_source"] == "bipolar_ensemble":
+            flags.append("BIPOLAR_COLOUR_SHAPE_ENSEMBLE")
+            if endpoint["sign_evidence"].get("colour_available", False):
+                flags.append("BIPOLAR_COLOUR_EVIDENCE_USED")
+        elif endpoint["sign_source"] == "adson_triangular_wide_tip":
+            flags.append("ADSON_TRIANGULAR_WIDE_TIP")
         elif endpoint["sign_source"] == "adson_two_prong_tip":
             flags.append("ADSON_TWO_PRONG_TIP")
-        elif endpoint["sign_source"] == "adson_two_tip_width":
-            flags.append("ADSON_TWO_TIP_WIDTH")
         elif endpoint["sign_source"] == "adson_tip_taper":
             flags.append("ADSON_TIP_TAPER")
         elif endpoint["sign_source"] == "adson_shape_fallback":

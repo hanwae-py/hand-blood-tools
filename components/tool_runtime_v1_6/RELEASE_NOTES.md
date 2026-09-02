@@ -1,5 +1,21 @@
 # Release notes — v1.6.0-rc1-compatible (2026-08-20)
 
+## 2026-09-02 endpoint-sign policy update
+
+- Preserved the existing Bovie external-wire, tip-taper and terminal-mass
+  fallback policy without parameter changes.
+- Changed Bipolar from taper-only endpoint selection to a non-hierarchical
+  signed-vote ensemble: connector taper 0.45, dark proximal colour 0.40 when
+  available, and terminal mass 0.15. External wire remains excluded.
+- Changed Adson to classify the whole-mask placement before looking for a
+  separated jaw gap. An approximately linear, monotonically widening
+  triangular silhouette selects its wider end as the working tip; other
+  layouts continue through separated-jaw, taper and low-confidence fallback
+  evidence.
+- Added rotation-invariant regression coverage for triangular Adson masks,
+  Bipolar colour votes, ensemble arithmetic, colour abstention and unchanged
+  Bovie behavior.
+
 ## 2026-08-31 control-facing position stabilization
 
 - Added spatial-selector-local translation stabilization for dynamic Tool TF:

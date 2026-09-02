@@ -11,7 +11,10 @@
     require_depth: true
     require_extrinsics_topic: true
     depth_aligned_to_color: false
-    maximum_stamp_delta_ns: 1000000
+    # Temporary CAM3 experiment: the unsynchronised live RGB/depth streams
+    # currently differ by roughly 14-19 ms. Keep this bounded at 25 ms so
+    # recognition can run while the camera-side timestamp sync is diagnosed.
+    maximum_stamp_delta_ns: 25000000
     sync_queue_size: 8
     latest_frame_only: true
 
@@ -37,6 +40,7 @@
 
     confidence_threshold: 0.3
     adson_forceps_confidence_threshold: 0.3
+    bovie_confidence_threshold: 0.5
     enable_class_agnostic_nms: false
     class_agnostic_nms_iou: 0.8
 
@@ -65,9 +69,10 @@
     temporal_association_maximum_centroid_distance_norm: 0.06
     temporal_association_maximum_mask_area_ratio: 3.0
     temporal_track_max_missed_frames: 3
-    # Test mode: use the previous per-class endpoint sign policy.
+    # Use anatomy/layout-based endpoint signs for each canonical tool class.
     positive_y_image_direction: "class_based"
-    # CAM3-only: identify merged face-on Adson jaws by terminal width ratio.
+    # Compatibility parameter; whole-mask Adson layout classification is now
+    # always active in class_based mode.
     adson_face_on_width_enabled: true
     pose_axis_length_m: 0.05
     optimize_for_inference: true
@@ -130,3 +135,10 @@
     tf_position_relocation_confirmation_frames: 2
     tf_position_relocation_consistency_m: 0.015
     tf_position_max_missed_frames: 3
+    # Class-independent +Y sign stabilization for every surgical tool TF.
+    # A sudden opposite-axis result must persist for three consistent frames.
+    tf_axis_stabilization_enabled: true
+    tf_axis_flip_confirmation_frames: 3
+    tf_axis_flip_dot_threshold: 0.0
+    tf_axis_pending_consistency_dot: 0.85
+    tf_axis_max_missed_frames: 3

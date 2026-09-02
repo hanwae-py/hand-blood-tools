@@ -18,6 +18,7 @@ from geometry_msgs.msg import TransformStamped
 
 from surgical_perception_msgs.msg import ToolPose
 
+from pnu_surgical_perception.tool_axis_stabilizer import ToolAxisStabilizer
 from pnu_surgical_perception.tool_position_stabilizer import (
     ToolPositionStabilizer,
 )
@@ -303,6 +304,11 @@ class ToolSpatialTfSelector:
         position_relocation_confirmation_frames: int = 2,
         position_relocation_consistency_m: float = 0.015,
         position_max_missed_frames: int = 3,
+        axis_stabilization_enabled: bool = False,
+        axis_flip_confirmation_frames: int = 3,
+        axis_flip_dot_threshold: float = 0.0,
+        axis_pending_consistency_dot: float = 0.85,
+        axis_max_missed_frames: int = 3,
     ) -> None:
         if int(max_tools_per_class) < 1:
             raise ValueError('max_tools_per_class must be at least one')
@@ -326,6 +332,13 @@ class ToolSpatialTfSelector:
             ),
             relocation_consistency_m=position_relocation_consistency_m,
             max_missed_frames=position_max_missed_frames,
+        )
+        self._axis_stabilizer = ToolAxisStabilizer(
+            enabled=axis_stabilization_enabled,
+            flip_confirmation_frames=axis_flip_confirmation_frames,
+            flip_dot_threshold=axis_flip_dot_threshold,
+            pending_consistency_dot=axis_pending_consistency_dot,
+            max_missed_frames=axis_max_missed_frames,
         )
         self._active_slots: set[str] = set()
         self._seen_slots: set[str] = set()
@@ -383,11 +396,28 @@ class ToolSpatialTfSelector:
     def position_filter_association_reset_total(self) -> int:
         return self._position_stabilizer.association_reset_total
 
+    @property
+    def axis_filter_active_count(self) -> int:
+        return self._axis_stabilizer.active_count
+
+    @property
+    def axis_filter_flip_held_total(self) -> int:
+        return self._axis_stabilizer.flip_held_total
+
+    @property
+    def axis_filter_flip_confirmed_total(self) -> int:
+        return self._axis_stabilizer.flip_confirmed_total
+
+    @property
+    def axis_filter_association_reset_total(self) -> int:
+        return self._axis_stabilizer.association_reset_total
+
     def reset(self) -> None:
         """Forget the current snapshot without reusing persistent identity."""
         self._active_slots.clear()
         self._last_source_stamp_ns = None
         self._position_stabilizer.reset()
+        self._axis_stabilizer.reset()
         self._reset_total += 1
 
     def assign(
@@ -415,6 +445,7 @@ class ToolSpatialTfSelector:
                 self._active_slots.clear()
                 self._last_source_stamp_ns = None
                 self._position_stabilizer.reset()
+                self._axis_stabilizer.reset()
                 self._reset_total += 1
             else:
                 self._rejected_total += len(tools)
@@ -445,9 +476,9 @@ class ToolSpatialTfSelector:
             previous_group = previous_by_prefix.get(prefix, set())
             current_group = current_by_prefix.get(prefix, set())
             if previous_group != current_group:
-                self._position_stabilizer.reset_keys(
-                    previous_group | current_group
-                )
+                changed_slots = previous_group | current_group
+                self._position_stabilizer.reset_keys(changed_slots)
+                self._axis_stabilizer.reset_keys(changed_slots)
 
         decisions: list[ToolTfDecision] = []
         valid_position_slots: set[str] = set()
@@ -472,10 +503,13 @@ class ToolSpatialTfSelector:
             stabilized = self._position_stabilizer.update(
                 child_frame_id, components.translation
             )
+            stabilized_axis = self._axis_stabilizer.update(
+                child_frame_id, components.quaternion_xyzw
+            )
             components = _ConstrainedPoseComponents(
                 components.parent_frame_id,
                 stabilized.position_m,
-                components.quaternion_xyzw,
+                stabilized_axis.quaternion_xyzw,
             )
             valid_position_slots.add(child_frame_id)
             decisions.append(
@@ -489,6 +523,7 @@ class ToolSpatialTfSelector:
             )
 
         self._position_stabilizer.finish_frame(valid_position_slots)
+        self._axis_stabilizer.finish_frame(valid_position_slots)
 
         new_slots = current_slots - self._seen_slots
         self._seen_slots.update(new_slots)

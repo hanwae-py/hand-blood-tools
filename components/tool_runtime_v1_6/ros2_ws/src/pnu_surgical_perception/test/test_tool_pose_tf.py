@@ -419,6 +419,56 @@ def test_spatial_selector_outputs_stabilized_translation_when_enabled():
     assert selector.position_filter_held_total == 1
 
 
+@pytest.mark.parametrize(
+    ('class_name', 'canonical_class_id'),
+    [
+        ('Adson Forceps', 3),
+        ('Bipolar Forceps', 5),
+        ('Bovie', 6),
+        ('Mosquito', 2),
+        ('Army-Navy Retractor', 6),
+    ],
+)
+def test_spatial_selector_stabilizes_axis_flips_for_every_tool_class(
+    class_name: str, canonical_class_id: int
+):
+    selector = ToolSpatialTfSelector(
+        max_tools_per_class=8,
+        reset_stamp_jump_sec=5.0,
+        axis_stabilization_enabled=True,
+        axis_flip_confirmation_frames=3,
+    )
+    initial = _valid_planar_tool(
+        class_name=class_name,
+        canonical_class_id=canonical_class_id,
+    )
+    initial.pose.orientation.x = 0.0
+    initial.pose.orientation.y = 0.0
+    initial.pose.orientation.z = 0.0
+    initial.pose.orientation.w = 1.0
+    flipped = _valid_planar_tool(
+        class_name=class_name,
+        canonical_class_id=canonical_class_id,
+    )
+    flipped.pose.orientation.x = 0.0
+    flipped.pose.orientation.y = 0.0
+    flipped.pose.orientation.z = 1.0
+    flipped.pose.orientation.w = 0.0
+
+    first = selector.assign(_header(100, 0), [initial], 'mayo')[0]
+    held = selector.assign(
+        _header(100, 100_000_000), [flipped], 'mayo'
+    )[0]
+
+    assert first.transform is not None
+    assert held.transform is not None
+    rotation = held.transform.transform.rotation
+    assert (rotation.x, rotation.y, rotation.z, rotation.w) == pytest.approx(
+        (0.0, 0.0, 0.0, 1.0)
+    )
+    assert selector.axis_filter_flip_held_total == 1
+
+
 def test_position_filter_resets_when_spatial_selector_cardinality_changes():
     selector = ToolSpatialTfSelector(
         max_tools_per_class=8,
