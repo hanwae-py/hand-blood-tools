@@ -308,6 +308,9 @@ class ToolSpatialTfSelector:
         axis_flip_confirmation_frames: int = 3,
         axis_flip_dot_threshold: float = 0.0,
         axis_pending_consistency_dot: float = 0.85,
+        axis_angular_deadband_rad: float = 0.0,
+        axis_smoothing_alpha: float = 1.0,
+        axis_lock_opposite: bool = False,
         axis_max_missed_frames: int = 3,
     ) -> None:
         if int(max_tools_per_class) < 1:
@@ -338,6 +341,9 @@ class ToolSpatialTfSelector:
             flip_confirmation_frames=axis_flip_confirmation_frames,
             flip_dot_threshold=axis_flip_dot_threshold,
             pending_consistency_dot=axis_pending_consistency_dot,
+            angular_deadband_rad=axis_angular_deadband_rad,
+            smoothing_alpha=axis_smoothing_alpha,
+            lock_opposite_axis=axis_lock_opposite,
             max_missed_frames=axis_max_missed_frames,
         )
         self._active_slots: set[str] = set()
@@ -409,8 +415,20 @@ class ToolSpatialTfSelector:
         return self._axis_stabilizer.flip_confirmed_total
 
     @property
+    def axis_filter_angular_held_total(self) -> int:
+        return self._axis_stabilizer.angular_held_total
+
+    @property
+    def axis_filter_angular_smoothed_total(self) -> int:
+        return self._axis_stabilizer.angular_smoothed_total
+
+    @property
     def axis_filter_association_reset_total(self) -> int:
         return self._axis_stabilizer.association_reset_total
+
+    @property
+    def axis_filter_relocation_reset_total(self) -> int:
+        return self._axis_stabilizer.relocation_reset_total
 
     def reset(self) -> None:
         """Forget the current snapshot without reusing persistent identity."""
@@ -503,8 +521,12 @@ class ToolSpatialTfSelector:
             stabilized = self._position_stabilizer.update(
                 child_frame_id, components.translation
             )
+            if stabilized.reason == 'RELOCATION_CONFIRMED':
+                self._axis_stabilizer.reset_for_relocation(child_frame_id)
             stabilized_axis = self._axis_stabilizer.update(
-                child_frame_id, components.quaternion_xyzw
+                child_frame_id,
+                components.quaternion_xyzw,
+                allow_flip_confirmation=bool(tool.orientation_valid),
             )
             components = _ConstrainedPoseComponents(
                 components.parent_frame_id,

@@ -129,16 +129,22 @@
     # Control-facing TF translation stabilization. Raw ToolPoseArray samples
     # remain unchanged for observability and offline tuning.
     tf_position_stabilization_enabled: true
-    tf_position_deadband_m: 0.0
-    tf_position_smoothing_alpha: 0.20
+    # Stationary-first tuning: hold sub-2 mm jitter and strongly smooth the
+    # remaining moderate displacement. Confirmed relocation still resets pose.
+    tf_position_deadband_m: 0.002
+    tf_position_smoothing_alpha: 0.10
     tf_position_max_jump_m: 0.04
     tf_position_relocation_confirmation_frames: 2
     tf_position_relocation_consistency_m: 0.015
     tf_position_max_missed_frames: 3
     # Class-independent +Y sign stabilization for every surgical tool TF.
-    # A sudden opposite-axis result must persist for three consistent frames.
+    # Require five consecutive, mutually consistent and orientation-valid
+    # observations before accepting a genuine opposite-axis direction.
     tf_axis_stabilization_enabled: true
-    tf_axis_flip_confirmation_frames: 3
+    tf_axis_flip_confirmation_frames: 5
     tf_axis_flip_dot_threshold: 0.0
     tf_axis_pending_consistency_dot: 0.85
+    tf_axis_angular_deadband_deg: 1.5
+    tf_axis_smoothing_alpha: 0.15
+    tf_axis_lock_opposite: false
     tf_axis_max_missed_frames: 3

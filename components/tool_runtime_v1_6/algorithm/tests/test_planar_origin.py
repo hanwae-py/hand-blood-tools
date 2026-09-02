@@ -183,14 +183,69 @@ def test_bipolar_dark_endpoint_contributes_to_ensemble(quarter_turns: int) -> No
     evidence = endpoints["sign_evidence"]
     assert endpoints["sign_source"] == "bipolar_ensemble"
     assert evidence["colour_available"]
-    assert abs(evidence["colour_vote"]) == pytest.approx(1.0)
+    assert evidence["colour"]["mode"] == "BLACK_HANDLE_ONLY"
+    assert abs(evidence["colour_vote"]) == pytest.approx(0.65)
     assert np.linalg.norm(
         endpoints["handle_uv"] - dark_handle_uv
     ) < np.linalg.norm(endpoints["working_uv"] - dark_handle_uv)
     assert np.linalg.norm(
         endpoints["working_uv"] - working_tip_uv
     ) < np.linalg.norm(endpoints["handle_uv"] - working_tip_uv)
-    assert endpoints["sign_confidence"] == pytest.approx(0.40)
+    assert endpoints["sign_confidence"] == pytest.approx(0.26)
+
+
+@pytest.mark.parametrize("quarter_turns", range(4))
+def test_bipolar_black_handle_and_blue_tip_agree(quarter_turns: int) -> None:
+    mask = np.zeros((52, 144), dtype=np.uint8)
+    mask[10:42, 10:134] = 1
+    image = np.full((*mask.shape, 3), 170, dtype=np.uint8)
+    image[mask.astype(bool)] = (170, 170, 170)
+    image[10:42, 10:46] = (15, 15, 15)
+    image[10:42, 98:134] = (220, 80, 35)
+    black_handle_uv = np.array((10.0, 25.5))
+    blue_tip_uv = np.array((133.0, 25.5))
+    for _ in range(quarter_turns):
+        old_width = mask.shape[1]
+        mask = np.rot90(mask).copy()
+        image = np.rot90(image).copy()
+        black_handle_uv = _rotate_uv_90_ccw(black_handle_uv, old_width)
+        blue_tip_uv = _rotate_uv_90_ccw(blue_tip_uv, old_width)
+
+    endpoints = _pca_endpoints(
+        mask.astype(bool),
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    colour = endpoints["sign_evidence"]["colour"]
+    assert colour["mode"] == "BLACK_HANDLE_BLUE_TIP"
+    assert colour["black_available"]
+    assert colour["blue_available"]
+    assert abs(colour["vote"]) == pytest.approx(1.0)
+    assert np.linalg.norm(
+        endpoints["handle_uv"] - black_handle_uv
+    ) < np.linalg.norm(endpoints["working_uv"] - black_handle_uv)
+    assert np.linalg.norm(
+        endpoints["working_uv"] - blue_tip_uv
+    ) < np.linalg.norm(endpoints["handle_uv"] - blue_tip_uv)
+
+
+def test_bipolar_blue_endpoint_alone_votes_for_working_tip() -> None:
+    mask = _rectangle_mask()
+    image = np.full((*mask.shape, 3), 170, dtype=np.uint8)
+    image[10:30, 45:60] = (220, 80, 35)
+
+    endpoints = _pca_endpoints(
+        mask,
+        _sign_policy("Bipolar Forceps"),
+        image_bgr=image,
+    )
+
+    colour = endpoints["sign_evidence"]["colour"]
+    assert colour["mode"] == "BLUE_TIP_ONLY"
+    assert not colour["black_available"]
+    assert colour["blue_available"]
+    assert endpoints["working_uv"][0] > endpoints["handle_uv"][0]
 
 
 def test_bipolar_nonblack_endpoint_abstains_from_colour_vote() -> None:

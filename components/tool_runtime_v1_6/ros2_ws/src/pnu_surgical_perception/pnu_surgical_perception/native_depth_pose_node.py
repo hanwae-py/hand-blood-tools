@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -681,6 +682,9 @@ class NativeDepthPoseNode(Node):
         self.declare_parameter('tf_axis_flip_confirmation_frames', 3)
         self.declare_parameter('tf_axis_flip_dot_threshold', 0.0)
         self.declare_parameter('tf_axis_pending_consistency_dot', 0.85)
+        self.declare_parameter('tf_axis_angular_deadband_deg', 0.0)
+        self.declare_parameter('tf_axis_smoothing_alpha', 1.0)
+        self.declare_parameter('tf_axis_lock_opposite', False)
         self.declare_parameter('tf_axis_max_missed_frames', 3)
 
     def _read_parameters(self) -> None:
@@ -1101,6 +1105,15 @@ class NativeDepthPoseNode(Node):
         self._tf_axis_pending_consistency_dot = float(
             value('tf_axis_pending_consistency_dot')
         )
+        self._tf_axis_angular_deadband_deg = float(
+            value('tf_axis_angular_deadband_deg')
+        )
+        self._tf_axis_smoothing_alpha = float(
+            value('tf_axis_smoothing_alpha')
+        )
+        self._tf_axis_lock_opposite = bool(
+            value('tf_axis_lock_opposite')
+        )
         self._tf_axis_max_missed_frames = int(
             value('tf_axis_max_missed_frames')
         )
@@ -1132,6 +1145,11 @@ class NativeDepthPoseNode(Node):
             axis_pending_consistency_dot=(
                 self._tf_axis_pending_consistency_dot
             ),
+            axis_angular_deadband_rad=math.radians(
+                self._tf_axis_angular_deadband_deg
+            ),
+            axis_smoothing_alpha=self._tf_axis_smoothing_alpha,
+            axis_lock_opposite=self._tf_axis_lock_opposite,
             axis_max_missed_frames=self._tf_axis_max_missed_frames,
         )
 
@@ -1553,6 +1571,27 @@ class NativeDepthPoseNode(Node):
             'position_filter_association_reset_total': (
                 self._tf_tracker.position_filter_association_reset_total
             ),
+            'axis_filter_active_count': (
+                self._tf_tracker.axis_filter_active_count
+            ),
+            'axis_filter_flip_held_total': (
+                self._tf_tracker.axis_filter_flip_held_total
+            ),
+            'axis_filter_flip_confirmed_total': (
+                self._tf_tracker.axis_filter_flip_confirmed_total
+            ),
+            'axis_filter_angular_held_total': (
+                self._tf_tracker.axis_filter_angular_held_total
+            ),
+            'axis_filter_angular_smoothed_total': (
+                self._tf_tracker.axis_filter_angular_smoothed_total
+            ),
+            'axis_filter_association_reset_total': (
+                self._tf_tracker.axis_filter_association_reset_total
+            ),
+            'axis_filter_relocation_reset_total': (
+                self._tf_tracker.axis_filter_relocation_reset_total
+            ),
         }
 
     def _output_worker_loop(self) -> None:
@@ -1741,6 +1780,27 @@ class NativeDepthPoseNode(Node):
                     ],
                     'tf_position_filter_association_reset_total': tf_report[
                         'position_filter_association_reset_total'
+                    ],
+                    'tf_axis_filter_active_count': tf_report[
+                        'axis_filter_active_count'
+                    ],
+                    'tf_axis_flip_held_total': tf_report[
+                        'axis_filter_flip_held_total'
+                    ],
+                    'tf_axis_flip_confirmed_total': tf_report[
+                        'axis_filter_flip_confirmed_total'
+                    ],
+                    'tf_axis_angular_held_total': tf_report[
+                        'axis_filter_angular_held_total'
+                    ],
+                    'tf_axis_angular_smoothed_total': tf_report[
+                        'axis_filter_angular_smoothed_total'
+                    ],
+                    'tf_axis_association_reset_total': tf_report[
+                        'axis_filter_association_reset_total'
+                    ],
+                    'tf_axis_relocation_reset_total': tf_report[
+                        'axis_filter_relocation_reset_total'
                     ],
                 })
                 self._diagnostics_publisher.publish(String(
@@ -2158,12 +2218,11 @@ class NativeDepthPoseNode(Node):
                 'tf_axis_stabilization_enabled': (
                     self._tf_axis_stabilization_enabled
                 ),
-                'tf_axis_flip_held_total': (
-                    self._tf_tracker.axis_filter_flip_held_total
+                'tf_axis_angular_deadband_deg': (
+                    self._tf_axis_angular_deadband_deg
                 ),
-                'tf_axis_flip_confirmed_total': (
-                    self._tf_tracker.axis_filter_flip_confirmed_total
-                ),
+                'tf_axis_smoothing_alpha': self._tf_axis_smoothing_alpha,
+                'tf_axis_lock_opposite': self._tf_axis_lock_opposite,
                 'error_code': '',
             }
             source_stamp_ns = (
@@ -2229,6 +2288,13 @@ class NativeDepthPoseNode(Node):
             'position_filter_outlier_held_total': 0,
             'position_filter_relocation_total': 0,
             'position_filter_association_reset_total': 0,
+            'axis_filter_active_count': 0,
+            'axis_filter_flip_held_total': 0,
+            'axis_filter_flip_confirmed_total': 0,
+            'axis_filter_angular_held_total': 0,
+            'axis_filter_angular_smoothed_total': 0,
+            'axis_filter_association_reset_total': 0,
+            'axis_filter_relocation_reset_total': 0,
         }
         if not self._publish_tool_tf or self._tf_broadcaster is None:
             report['skip_reason'] = 'TF_DISABLED'
@@ -2275,6 +2341,27 @@ class NativeDepthPoseNode(Node):
             )
             report['position_filter_association_reset_total'] = (
                 self._tf_tracker.position_filter_association_reset_total
+            )
+            report['axis_filter_active_count'] = (
+                self._tf_tracker.axis_filter_active_count
+            )
+            report['axis_filter_flip_held_total'] = (
+                self._tf_tracker.axis_filter_flip_held_total
+            )
+            report['axis_filter_flip_confirmed_total'] = (
+                self._tf_tracker.axis_filter_flip_confirmed_total
+            )
+            report['axis_filter_angular_held_total'] = (
+                self._tf_tracker.axis_filter_angular_held_total
+            )
+            report['axis_filter_angular_smoothed_total'] = (
+                self._tf_tracker.axis_filter_angular_smoothed_total
+            )
+            report['axis_filter_association_reset_total'] = (
+                self._tf_tracker.axis_filter_association_reset_total
+            )
+            report['axis_filter_relocation_reset_total'] = (
+                self._tf_tracker.axis_filter_relocation_reset_total
             )
         transforms = [
             decision.transform

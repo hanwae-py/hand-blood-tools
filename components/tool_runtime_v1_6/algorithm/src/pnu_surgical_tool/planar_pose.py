@@ -70,7 +70,13 @@ ADSON_TRIANGLE_MINIMUM_MONOTONIC_FRACTION = 0.70
 ADSON_TRIANGLE_MINIMUM_RELATIVE_WIDTH_CHANGE = 0.35
 BIPOLAR_COLOUR_TERMINAL_FRACTION = 0.20
 BIPOLAR_BLACK_LAB_L_THRESHOLD = 90.0
+BIPOLAR_BLACK_HSV_VALUE_MAXIMUM = 110
+BIPOLAR_BLUE_HSV_HUE_MINIMUM = 90
+BIPOLAR_BLUE_HSV_HUE_MAXIMUM = 135
+BIPOLAR_BLUE_HSV_SATURATION_MINIMUM = 70
+BIPOLAR_BLUE_HSV_VALUE_MINIMUM = 40
 BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH = 0.05
+BIPOLAR_SINGLE_COLOUR_STRENGTH_SCALE = 0.65
 BIPOLAR_ENSEMBLE_TAPER_WEIGHT = 0.45
 BIPOLAR_ENSEMBLE_COLOUR_WEIGHT = 0.40
 BIPOLAR_ENSEMBLE_MASS_WEIGHT = 0.15
@@ -535,12 +541,13 @@ def _bipolar_colour_handle_evidence(
     high: float,
     mask_coordinates: tuple[np.ndarray, np.ndarray],
 ) -> dict[str, Any]:
-    """Return a signed, abstaining colour vote for the Bipolar handle.
+    """Return a signed, abstaining black-handle/blue-tip colour vote.
 
     A positive vote means the high PCA endpoint is the dark proximal handle;
     a negative vote means the low endpoint is the handle.  This function does
-    not select the endpoint by itself: the caller combines this vote with
-    taper and terminal-mass votes.
+    not select the endpoint by itself. Black evidence votes for the handle,
+    blue evidence votes for the opposite working tip, and the caller combines
+    the resulting colour vote with taper and terminal-mass votes.
     """
     mask_ys, mask_xs = mask_coordinates
     x0, x1 = int(mask_xs.min()), int(mask_xs.max()) + 1
@@ -573,6 +580,10 @@ def _bipolar_colour_handle_evidence(
         image_bgr[y0:y1, x0:x1],
         cv2.COLOR_BGR2LAB,
     )[:, :, 0]
+    hsv_crop = cv2.cvtColor(
+        image_bgr[y0:y1, x0:x1],
+        cv2.COLOR_BGR2HSV,
+    )
     low_values = lab_l_crop[
         ys[low_selection] - y0,
         xs[low_selection] - x0,
@@ -583,12 +594,33 @@ def _bipolar_colour_handle_evidence(
     ].astype(np.float64)
     low_median = float(np.median(low_values))
     high_median = float(np.median(high_values))
-    low_black_fraction = float(
-        np.mean(low_values <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
+    blue_pixels = (
+        (hsv_crop[:, :, 0] >= BIPOLAR_BLUE_HSV_HUE_MINIMUM)
+        & (hsv_crop[:, :, 0] <= BIPOLAR_BLUE_HSV_HUE_MAXIMUM)
+        & (hsv_crop[:, :, 1] >= BIPOLAR_BLUE_HSV_SATURATION_MINIMUM)
+        & (hsv_crop[:, :, 2] >= BIPOLAR_BLUE_HSV_VALUE_MINIMUM)
     )
-    high_black_fraction = float(
-        np.mean(high_values <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
+    black_pixels = (
+        (lab_l_crop <= BIPOLAR_BLACK_LAB_L_THRESHOLD)
+        & (hsv_crop[:, :, 2] <= BIPOLAR_BLACK_HSV_VALUE_MAXIMUM)
+        & ~blue_pixels
     )
+    low_black_fraction = float(np.mean(black_pixels[
+        ys[low_selection] - y0,
+        xs[low_selection] - x0,
+    ]))
+    high_black_fraction = float(np.mean(black_pixels[
+        ys[high_selection] - y0,
+        xs[high_selection] - x0,
+    ]))
+    low_blue_fraction = float(np.mean(blue_pixels[
+        ys[low_selection] - y0,
+        xs[low_selection] - x0,
+    ]))
+    high_blue_fraction = float(np.mean(blue_pixels[
+        ys[high_selection] - y0,
+        xs[high_selection] - x0,
+    ]))
 
     # Positive signs consistently mean "high endpoint is the handle".
     median_vote = float(np.clip((low_median - high_median) / 30.0, -1.0, 1.0))
@@ -597,33 +629,59 @@ def _bipolar_colour_handle_evidence(
         -1.0,
         1.0,
     ))
-    darker_median = min(low_median, high_median)
-    darkness_strength = float(np.clip(
-        (BIPOLAR_BLACK_LAB_L_THRESHOLD - darker_median) / 25.0,
-        0.0,
-        1.0,
-    ))
     black_strength = min(
         max(low_black_fraction, high_black_fraction) / 0.60,
         1.0,
     )
-    colour_presence = max(darkness_strength, black_strength)
-    vote = float(np.clip(
+    black_vote = float(np.clip(
         (0.75 * median_vote + 0.25 * black_fraction_vote)
-        * colour_presence,
+        * black_strength,
         -1.0,
         1.0,
     ))
+    # Blue marks the working tip, so blue at the low endpoint means that the
+    # high endpoint is the handle (the same positive sign convention).
+    blue_vote = float(np.clip(
+        (low_blue_fraction - high_blue_fraction) / 0.60,
+        -1.0,
+        1.0,
+    ))
+    black_available = bool(
+        abs(black_vote) >= BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH
+    )
+    blue_available = bool(
+        abs(blue_vote) >= BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH
+    )
+    if black_available and blue_available:
+        vote = 0.5 * (black_vote + blue_vote)
+        colour_mode = "BLACK_HANDLE_BLUE_TIP"
+    elif black_available:
+        vote = BIPOLAR_SINGLE_COLOUR_STRENGTH_SCALE * black_vote
+        colour_mode = "BLACK_HANDLE_ONLY"
+    elif blue_available:
+        vote = BIPOLAR_SINGLE_COLOUR_STRENGTH_SCALE * blue_vote
+        colour_mode = "BLUE_TIP_ONLY"
+    else:
+        vote = 0.0
+        colour_mode = "ABSTAIN"
+    vote = float(np.clip(vote, -1.0, 1.0))
     return {
         "available": bool(
             abs(vote) >= BIPOLAR_COLOUR_MINIMUM_DIRECTION_STRENGTH
         ),
         "vote": vote,
         "confidence": abs(vote),
+        "mode": colour_mode,
+        "black_vote": black_vote,
+        "black_available": black_available,
+        "blue_vote": blue_vote,
+        "blue_available": blue_available,
         "low_median_l": low_median,
         "high_median_l": high_median,
         "low_black_fraction": low_black_fraction,
         "high_black_fraction": high_black_fraction,
+        "low_blue_fraction": low_blue_fraction,
+        "high_blue_fraction": high_blue_fraction,
     }
 
 

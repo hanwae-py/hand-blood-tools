@@ -265,14 +265,17 @@ def find_depth_h5(rgb_path):
 # model loading
 # --------------------------------------------------------------------------
 
-def load_mediapipe(max_hands, cpu_only=False):
+def load_mediapipe(
+        max_hands, cpu_only=False, min_hand_detection_confidence=0.3,
+        min_hand_presence_confidence=0.3, min_tracking_confidence=0.3):
     import mediapipe as mp
     from mediapipe.tasks.python import vision, BaseOptions
     model_path = ensure_mediapipe_model()
     common_kwargs = dict(
         running_mode=vision.RunningMode.VIDEO, num_hands=max_hands,
-        min_hand_detection_confidence=0.3, min_hand_presence_confidence=0.3,
-        min_tracking_confidence=0.3)
+        min_hand_detection_confidence=min_hand_detection_confidence,
+        min_hand_presence_confidence=min_hand_presence_confidence,
+        min_tracking_confidence=min_tracking_confidence)
     if cpu_only:
         base_opts = BaseOptions(model_asset_path=model_path)
         hand_det = vision.HandLandmarker.create_from_options(
@@ -293,7 +296,10 @@ def load_mediapipe(max_hands, cpu_only=False):
     return mp, hand_det
 
 
-def load_gesture_recognizer(max_hands, model_path=None, cpu_only=False):
+def load_gesture_recognizer(
+        max_hands, model_path=None, cpu_only=False,
+        min_hand_detection_confidence=0.3,
+        min_hand_presence_confidence=0.3, min_tracking_confidence=0.3):
     """Load MediaPipe's official canned Gesture Recognizer in VIDEO mode.
 
     The recognizer returns landmarks, handedness and gestures from one graph,
@@ -312,9 +318,9 @@ def load_gesture_recognizer(max_hands, model_path=None, cpu_only=False):
     common_kwargs = dict(
         running_mode=vision.RunningMode.VIDEO,
         num_hands=max_hands,
-        min_hand_detection_confidence=0.3,
-        min_hand_presence_confidence=0.3,
-        min_tracking_confidence=0.3,
+        min_hand_detection_confidence=min_hand_detection_confidence,
+        min_hand_presence_confidence=min_hand_presence_confidence,
+        min_tracking_confidence=min_tracking_confidence,
         canned_gesture_classifier_options=canned_options,
     )
     if cpu_only:

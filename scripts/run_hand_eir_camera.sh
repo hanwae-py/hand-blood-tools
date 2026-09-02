@@ -13,11 +13,13 @@ case "${CAMERA}" in
   head)
     GESTURE_PROFILE=topview
     MAX_HANDS=4
+    HAND_CONFIDENCE_THRESHOLD=0.5
     ;;
   left_ee|right_ee)
     # The EE profile is viewpoint-specific, not handedness-specific.
     GESTURE_PROFILE=right_ee
     MAX_HANDS=1
+    HAND_CONFIDENCE_THRESHOLD=0.3
     ;;
   *)
     echo "usage: $0 head|left_ee|right_ee [ROS arguments...]" >&2
@@ -45,6 +47,9 @@ exec "${HAND_PYTHON}" \
   -p palm_facing_enabled:=false \
   -p "gesture_profile:=${GESTURE_PROFILE}" \
   -p "max_hands:=${MAX_HANDS}" \
+  -p "min_hand_detection_confidence:=${HAND_CONFIDENCE_THRESHOLD}" \
+  -p "min_hand_presence_confidence:=${HAND_CONFIDENCE_THRESHOLD}" \
+  -p "min_tracking_confidence:=${HAND_CONFIDENCE_THRESHOLD}" \
   -p publish_overlay:=true \
   -p publish_target_pose:=false \
   -p autostart:=true \

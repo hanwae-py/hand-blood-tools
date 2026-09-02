@@ -469,6 +469,91 @@ def test_spatial_selector_stabilizes_axis_flips_for_every_tool_class(
     assert selector.axis_filter_flip_held_total == 1
 
 
+def test_confirmed_position_relocation_reinitializes_locked_axis():
+    selector = ToolSpatialTfSelector(
+        max_tools_per_class=8,
+        reset_stamp_jump_sec=5.0,
+        position_stabilization_enabled=True,
+        position_max_jump_m=0.04,
+        position_relocation_confirmation_frames=2,
+        position_relocation_consistency_m=0.015,
+        axis_stabilization_enabled=True,
+        axis_lock_opposite=True,
+    )
+    initial = _valid_planar_tool(position=(0.10, 0.20, 0.80))
+    initial.pose.orientation.x = 0.0
+    initial.pose.orientation.y = 0.0
+    initial.pose.orientation.z = 0.0
+    initial.pose.orientation.w = 1.0
+    relocated = _valid_planar_tool(position=(0.20, 0.20, 0.80))
+    relocated.pose.orientation.x = 0.0
+    relocated.pose.orientation.y = 0.0
+    relocated.pose.orientation.z = 1.0
+    relocated.pose.orientation.w = 0.0
+
+    selector.assign(_header(100, 0), [initial], 'mayo')
+    held = selector.assign(
+        _header(100, 100_000_000), [relocated], 'mayo'
+    )[0]
+    accepted = selector.assign(
+        _header(100, 200_000_000), [relocated], 'mayo'
+    )[0]
+
+    assert held.transform is not None
+    assert accepted.transform is not None
+    held_rotation = held.transform.transform.rotation
+    accepted_rotation = accepted.transform.transform.rotation
+    assert (
+        held_rotation.x,
+        held_rotation.y,
+        held_rotation.z,
+        held_rotation.w,
+    ) == pytest.approx((0.0, 0.0, 0.0, 1.0))
+    assert (
+        accepted_rotation.x,
+        accepted_rotation.y,
+        accepted_rotation.z,
+        accepted_rotation.w,
+    ) == pytest.approx((0.0, 0.0, 1.0, 0.0))
+    assert selector.axis_filter_relocation_reset_total == 1
+
+
+def test_invalid_orientation_cannot_confirm_axis_flip_for_any_tool_class():
+    selector = ToolSpatialTfSelector(
+        max_tools_per_class=8,
+        reset_stamp_jump_sec=5.0,
+        axis_stabilization_enabled=True,
+        axis_flip_confirmation_frames=2,
+    )
+    initial = _valid_planar_tool(class_name='Adson Forceps')
+    initial.pose.orientation.x = 0.0
+    initial.pose.orientation.y = 0.0
+    initial.pose.orientation.z = 0.0
+    initial.pose.orientation.w = 1.0
+    unreliable_flip = _valid_planar_tool(class_name='Adson Forceps')
+    unreliable_flip.orientation_valid = False
+    unreliable_flip.pose.orientation.x = 0.0
+    unreliable_flip.pose.orientation.y = 0.0
+    unreliable_flip.pose.orientation.z = 1.0
+    unreliable_flip.pose.orientation.w = 0.0
+
+    selector.assign(_header(100, 0), [initial], 'mayo')
+    first = selector.assign(
+        _header(100, 100_000_000), [unreliable_flip], 'mayo'
+    )[0]
+    second = selector.assign(
+        _header(100, 200_000_000), [unreliable_flip], 'mayo'
+    )[0]
+
+    for decision in (first, second):
+        assert decision.transform is not None
+        rotation = decision.transform.transform.rotation
+        assert (rotation.x, rotation.y, rotation.z, rotation.w) == (
+            pytest.approx((0.0, 0.0, 0.0, 1.0))
+        )
+    assert selector.axis_filter_flip_confirmed_total == 0
+
+
 def test_position_filter_resets_when_spatial_selector_cardinality_changes():
     selector = ToolSpatialTfSelector(
         max_tools_per_class=8,

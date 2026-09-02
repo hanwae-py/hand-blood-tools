@@ -1,4 +1,4 @@
-"""ROS-independent temporal stabilization for tool-axis direction flips."""
+"""ROS-independent temporal stabilization for control-facing tool attitude."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class AxisStabilizationDecision:
 
 
 class ToolAxisStabilizer:
-    """Reject isolated 180-degree longitudinal-axis reversals.
+    """Smooth ordinary attitude jitter and reject longitudinal-axis reversals.
 
     The constrained surgical-tool frame uses +Y as its longitudinal signed
     axis. A segmentation or endpoint-sign error reverses both X and Y while
@@ -37,8 +37,12 @@ class ToolAxisStabilizer:
     consistent for several frames before replacing the last accepted pose.
 
     This filter is class-independent and keyed by the same spatial selector
-    used for control-facing TF publication. It deliberately does not low-pass
-    ordinary angular motion, so genuine gradual rotations remain responsive.
+    used for control-facing TF publication. Small attitude noise is held by an
+    angular deadband and ordinary motion is quaternion-SLERP filtered. Live
+    profiles may lock the opposite axis until the selector is reset or a
+    position relocation is confirmed; that mode intentionally favours the
+    common stationary-tool case over an instantaneous in-place 180-degree
+    rotation.
     """
 
     def __init__(
@@ -48,6 +52,9 @@ class ToolAxisStabilizer:
         flip_confirmation_frames: int = 3,
         flip_dot_threshold: float = 0.0,
         pending_consistency_dot: float = 0.85,
+        angular_deadband_rad: float = 0.0,
+        smoothing_alpha: float = 1.0,
+        lock_opposite_axis: bool = False,
         max_missed_frames: int = 3,
     ) -> None:
         if int(flip_confirmation_frames) < 1:
@@ -56,6 +63,13 @@ class ToolAxisStabilizer:
             raise ValueError('flip_dot_threshold must be in [-1, 1]')
         if not -1.0 <= float(pending_consistency_dot) <= 1.0:
             raise ValueError('pending_consistency_dot must be in [-1, 1]')
+        if (
+            not math.isfinite(angular_deadband_rad)
+            or not 0.0 <= float(angular_deadband_rad) < math.pi
+        ):
+            raise ValueError('angular_deadband_rad must be in [0, pi)')
+        if not 0.0 < float(smoothing_alpha) <= 1.0:
+            raise ValueError('smoothing_alpha must be in (0, 1]')
         if int(max_missed_frames) < 0:
             raise ValueError('max_missed_frames must be non-negative')
 
@@ -63,11 +77,17 @@ class ToolAxisStabilizer:
         self.flip_confirmation_frames = int(flip_confirmation_frames)
         self.flip_dot_threshold = float(flip_dot_threshold)
         self.pending_consistency_dot = float(pending_consistency_dot)
+        self.angular_deadband_rad = float(angular_deadband_rad)
+        self.smoothing_alpha = float(smoothing_alpha)
+        self.lock_opposite_axis = bool(lock_opposite_axis)
         self.max_missed_frames = int(max_missed_frames)
         self._states: dict[str, _AxisFilterState] = {}
         self._flip_held_total = 0
         self._flip_confirmed_total = 0
+        self._angular_held_total = 0
+        self._angular_smoothed_total = 0
         self._association_reset_total = 0
+        self._relocation_reset_total = 0
 
     @property
     def active_count(self) -> int:
@@ -82,8 +102,20 @@ class ToolAxisStabilizer:
         return self._flip_confirmed_total
 
     @property
+    def angular_held_total(self) -> int:
+        return self._angular_held_total
+
+    @property
+    def angular_smoothed_total(self) -> int:
+        return self._angular_smoothed_total
+
+    @property
     def association_reset_total(self) -> int:
         return self._association_reset_total
+
+    @property
+    def relocation_reset_total(self) -> int:
+        return self._relocation_reset_total
 
     def reset(self) -> None:
         self._states.clear()
@@ -95,6 +127,11 @@ class ToolAxisStabilizer:
             if self._states.pop(key, None) is not None:
                 removed += 1
         self._association_reset_total += removed
+
+    def reset_for_relocation(self, key: str) -> None:
+        """Let a confirmed physical relocation establish a fresh axis sign."""
+        if self._states.pop(key, None) is not None:
+            self._relocation_reset_total += 1
 
     @staticmethod
     def _normalized_quaternion(
@@ -135,10 +172,37 @@ class ToolAxisStabilizer:
             return tuple(-value for value in quaternion)
         return quaternion
 
+    @classmethod
+    def _slerp(
+        cls,
+        start: tuple[float, float, float, float],
+        stop: tuple[float, float, float, float],
+        fraction: float,
+    ) -> tuple[float, float, float, float]:
+        """Return the shortest-path normalized quaternion interpolation."""
+        stop = cls._same_quaternion_hemisphere(stop, start)
+        dot = min(max(cls._dot(start, stop), -1.0), 1.0)
+        if dot > 0.9995:
+            blended = tuple(
+                left + fraction * (right - left)
+                for left, right in zip(start, stop, strict=True)
+            )
+            return cls._normalized_quaternion(blended)
+        angle = math.acos(dot)
+        denominator = math.sin(angle)
+        start_scale = math.sin((1.0 - fraction) * angle) / denominator
+        stop_scale = math.sin(fraction * angle) / denominator
+        return tuple(
+            start_scale * left + stop_scale * right
+            for left, right in zip(start, stop, strict=True)
+        )
+
     def update(
         self,
         key: str,
         quaternion_xyzw: Sequence[float],
+        *,
+        allow_flip_confirmation: bool = True,
     ) -> AxisStabilizationDecision:
         """Update one selector slot and return its control-facing orientation."""
         measurement = self._normalized_quaternion(quaternion_xyzw)
@@ -157,12 +221,51 @@ class ToolAxisStabilizer:
         )
         axis_dot = self._dot(measurement_y, state.y_axis)
         if axis_dot >= self.flip_dot_threshold:
-            state.quaternion_xyzw = measurement
-            state.y_axis = measurement_y
             state.pending_y_axis = None
             state.pending_count = 0
+
+            quaternion_dot = min(max(
+                self._dot(measurement, state.quaternion_xyzw), -1.0
+            ), 1.0)
+            angular_distance = 2.0 * math.acos(quaternion_dot)
+            if (
+                self.angular_deadband_rad > 0.0
+                and angular_distance <= self.angular_deadband_rad
+            ):
+                self._angular_held_total += 1
+                return AxisStabilizationDecision(
+                    state.quaternion_xyzw,
+                    'AXIS_ANGULAR_DEADBAND_HELD',
+                    axis_dot,
+                )
+
+            accepted = self._slerp(
+                state.quaternion_xyzw,
+                measurement,
+                self.smoothing_alpha,
+            )
+            state.quaternion_xyzw = accepted
+            state.y_axis = self._y_axis(accepted)
+            if self.smoothing_alpha < 1.0:
+                self._angular_smoothed_total += 1
+                reason = 'AXIS_SLERP_SMOOTHED'
+            else:
+                reason = 'AXIS_ACCEPTED'
             return AxisStabilizationDecision(
-                measurement, 'AXIS_ACCEPTED', axis_dot
+                accepted, reason, axis_dot
+            )
+
+        if not allow_flip_confirmation:
+            # A numerically available quaternion may still have an unreliable
+            # endpoint sign. It can be published as raw evidence, but must not
+            # advance the temporal decision to reverse the control-facing +Y.
+            state.pending_y_axis = None
+            state.pending_count = 0
+            self._flip_held_total += 1
+            return AxisStabilizationDecision(
+                state.quaternion_xyzw,
+                'AXIS_FLIP_LOW_CONFIDENCE_HELD',
+                axis_dot,
             )
 
         if (
@@ -175,7 +278,10 @@ class ToolAxisStabilizer:
             state.pending_count += 1
         state.pending_y_axis = measurement_y
 
-        if state.pending_count >= self.flip_confirmation_frames:
+        if (
+            not self.lock_opposite_axis
+            and state.pending_count >= self.flip_confirmation_frames
+        ):
             state.quaternion_xyzw = measurement
             state.y_axis = measurement_y
             state.pending_y_axis = None

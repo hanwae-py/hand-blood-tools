@@ -1,7 +1,23 @@
 # Release notes — v1.6.0-rc1-compatible (2026-08-20)
 
+## 2026-09-02 stationary-first control TF stabilization
+
+- Tuned CAM3/CAM4 control-facing position filtering for mostly stationary
+  tools: 2 mm deadband and 0.10 EMA while preserving raw `ToolPoseArray`.
+- Added a 1.5 degree angular deadband and 0.15 quaternion SLERP to reduce
+  ordinary mask-axis attitude jitter.
+- Required five consecutive, mutually consistent, orientation-valid opposite
+  +Y observations before accepting a reversal for every surgical-tool class.
+  Low-confidence samples hold the previous control-facing direction and reset
+  the pending confirmation sequence.
+- Added diagnostics and regression tests for angular hold, smoothing,
+  persistent flip lock, and relocation reinitialization.
+
 ## 2026-09-02 endpoint-sign policy update
 
+- Refined Bipolar colour evidence so black explicitly votes for the handle and
+  blue explicitly votes for the working tip. Agreement receives full colour
+  strength, a single cue is down-weighted, and conflicting cues cancel.
 - Preserved the existing Bovie external-wire, tip-taper and terminal-mass
   fallback policy without parameter changes.
 - Changed Bipolar from taper-only endpoint selection to a non-hierarchical

@@ -452,6 +452,9 @@ class HandDetectionNode(LifecycleNode):
             'gesture_model', DEFAULT_GESTURE_RECOGNIZER_MODEL)
         self.declare_parameter('gesture_profile', 'topview')
         self.declare_parameter('max_hands', 4)
+        self.declare_parameter('min_hand_detection_confidence', 0.3)
+        self.declare_parameter('min_hand_presence_confidence', 0.3)
+        self.declare_parameter('min_tracking_confidence', 0.3)
         self.declare_parameter('cpu_only', False)
         self.declare_parameter('low_latency_pipeline', True)
         self.declare_parameter('roi_inference_crop', True)
@@ -765,6 +768,23 @@ class HandDetectionNode(LifecycleNode):
         self.gesture_classifier_metadata = gesture_classifier_metadata(
             self.gesture_profile)
         self.max_hands = g('max_hands').value
+        self.min_hand_detection_confidence = float(
+            g('min_hand_detection_confidence').value)
+        self.min_hand_presence_confidence = float(
+            g('min_hand_presence_confidence').value)
+        self.min_tracking_confidence = float(
+            g('min_tracking_confidence').value)
+        confidence_parameters = {
+            'min_hand_detection_confidence': (
+                self.min_hand_detection_confidence),
+            'min_hand_presence_confidence': (
+                self.min_hand_presence_confidence),
+            'min_tracking_confidence': self.min_tracking_confidence,
+        }
+        for name, confidence in confidence_parameters.items():
+            if not 0.0 <= confidence <= 1.0:
+                self.get_logger().error(f'{name} must be in [0.0, 1.0]')
+                return TransitionCallbackReturn.FAILURE
         self.cpu_only = g('cpu_only').value
         self.low_latency_pipeline = bool(g('low_latency_pipeline').value)
         self.roi_inference_crop = bool(g('roi_inference_crop').value)
@@ -969,6 +989,11 @@ class HandDetectionNode(LifecycleNode):
                 self.max_hands,
                 model_path=self.gesture_model_path,
                 cpu_only=self.cpu_only,
+                min_hand_detection_confidence=(
+                    self.min_hand_detection_confidence),
+                min_hand_presence_confidence=(
+                    self.min_hand_presence_confidence),
+                min_tracking_confidence=self.min_tracking_confidence,
             )
             if self.use_mono_depth:
                 (self.torch, self.depth_processor, self.depth_model,
@@ -1899,6 +1924,11 @@ class HandDetectionNode(LifecycleNode):
                 self._aligned_depth_valid_fraction, 4),
             'depth_frame_id': self._last_depth_frame_id,
             'max_hands': self.get_parameter('max_hands').value,
+            'min_hand_detection_confidence': (
+                self.min_hand_detection_confidence),
+            'min_hand_presence_confidence': (
+                self.min_hand_presence_confidence),
+            'min_tracking_confidence': self.min_tracking_confidence,
             'cpu_only': self.get_parameter('cpu_only').value,
             'gesture_topic': self.get_parameter('gesture_topic').value,
             'gesture_profile': self.gesture_profile,

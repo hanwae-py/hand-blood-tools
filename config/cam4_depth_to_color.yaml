@@ -34,6 +34,11 @@
       - 0.00048295879969373345
     calibration_version: "cam4_live_factory_depth_scale_and_workplane_20260822"
 
+    # MediaPipe Hand/Gesture Recognizer acceptance thresholds.
+    min_hand_detection_confidence: 0.50
+    min_hand_presence_confidence: 0.50
+    min_tracking_confidence: 0.50
+
     # Camera-view contract: only the surgeon's right hand may enter CAM4.
     # This deterministic policy replaces MediaPipe's glove-sensitive per-frame
     # handedness result for keypoints, gestures, and palm-facing sign selection.

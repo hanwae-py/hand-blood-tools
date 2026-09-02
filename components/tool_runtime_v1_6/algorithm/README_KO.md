@@ -378,7 +378,7 @@ quaternion order = (x, y, z, w)
 | --- | --- |
 | Scalpel, Allis Forceps, Mosquito, Thyroid Retractor | terminal mass가 큰 쪽을 handle로 보고 반대쪽을 tip으로 선택 |
 | Adson Forceps | 전체 mask의 배치 형상을 먼저 판별; 폭 profile이 선형·단조롭게 넓어지는 삼각형이면 넓은 쪽을 tip으로 선택하고, 그렇지 않으면 two-jaw component와 terminal taper를 사용 |
-| Bipolar Forceps | connector taper, 검은 proximal 색상, terminal mass를 각각 signed vote로 계산한 뒤 비계층 가중 앙상블로 handle을 선택 |
+| Bipolar Forceps | connector taper, black handle/blue tip 색상, terminal mass를 각각 signed vote로 계산한 뒤 비계층 가중 앙상블로 handle을 선택 |
 | Bovie | RGB가 있으면 mask 바깥 wire 연결 evidence로 handle을 찾고, 그렇지 않으면 tip taper를 사용; 모호하면 큰 terminal mass를 handle 대표로 선택하고 low confidence 처리 |
 | Army-Navy Retractor | 양 끝이 모두 blade인 C2 대칭이므로 물리적인 유일 +Y가 없음; image/CAM4 기준의 결정론적 대표 부호를 선택 |
 
@@ -402,7 +402,9 @@ handle, 음수는 low end가 handle이라는 뜻이다.
 
 ```text
 taper_vote = signed connector-taper separation
-colour_vote = signed LAB-L darkness + black-pixel-fraction evidence
+black_vote = LAB-L darkness + black-pixel-fraction evidence  # black = handle
+blue_vote = HSV blue-pixel-fraction evidence                 # blue = tip
+colour_vote = agreement(black_vote, blue_vote)
 mass_vote = (high_terminal_mass - low_terminal_mass) / total_terminal_mass
 
 ensemble_score = 0.45 * taper_vote
@@ -410,8 +412,10 @@ ensemble_score = 0.45 * taper_vote
                + 0.15 * mass_vote
 ```
 
-색상 vote는 mask 내부 양 끝 `20%`에서 계산하며, 더 어두운 쪽을 proximal handle 방향으로 투표한다.
-검은색 방향성이 충분하지 않거나 RGB가 없으면 colour vote는 기권하고 활성 weight만 다시 normalize한다.
+색상 vote는 mask 내부 양 끝 `20%`에서 계산한다. LAB-L이 낮은 black 쪽은 proximal handle로, HSV에서
+blue로 분류된 쪽은 working tip으로 투표한다. 두 cue가 반대 endpoint를 가리켜 해부학적으로 일치하면
+완전한 colour vote를 사용한다. 한 cue만 검출되면 색상 강도를 `0.65`배로 낮추며, 서로 충돌하면 상쇄한다.
+색상 방향성이 충분하지 않거나 RGB가 없으면 colour vote는 기권하고 활성 weight만 다시 normalize한다.
 최종 score가 양수면 high end, 음수면 low end를 handle로 정하고 `abs(score)`를 endpoint sign confidence로
 사용한다. 따라서 강한 색상 하나가 무조건 결과를 결정하지 않고 taper와 mass가 반대 방향으로 투표하면
 서로 상쇄된다. Bipolar의 외부 cable/wire는 이 앙상블에 포함하지 않는다.
@@ -475,24 +479,26 @@ delta <= deadband:
     P_out = P_filtered
 
 deadband < delta <= 0.040 m:
-    P_filtered = P_filtered + 0.20 * (P_raw - P_filtered)
+    P_filtered = P_filtered + alpha * (P_raw - P_filtered)
 
 delta > 0.040 m:
     이전 큰 이동 후보와 0.015 m 이내인 관측이 2 frame 연속 확인될 때까지
     이전 P_filtered를 유지하고, 확인되면 후보 평균으로 relocation
 ```
 
-현재 live profile의 deadband는 `0.0 m`이므로 non-zero 작은 이동에는 EMA가 적용되고 고정 bias를 만드는
-hold 구간은 없다. selector가 `3` frame을 초과해 사라지면 filter state를 만료한다. 같은 class의 검출 개수가
-바뀌어 좌→우 ordinal의 의미가 달라질 때는 관련 state를 reset하여 다른 도구의 과거 위치를 물려받지 않게
-한다.
+CAM3·CAM4 live profile은 대부분 정지한 도구를 우선하여 position deadband `0.002 m`, EMA alpha `0.10`을
+사용한다. selector가 `3` frame을 초과해 사라지면 filter state를 만료한다. 같은 class의 검출 개수가 바뀌어
+좌→우 ordinal의 의미가 달라질 때는 관련 state를 reset하여 다른 도구의 과거 위치를 물려받지 않게 한다.
 
 축 방향 안정화는 Adson에 한정하지 않고 **모든 surgical-tool TF class**에 동일하게 적용한다. 이전에
 채택한 tool-frame `+Y`와 현재 `+Y`의 dot product가 `0` 미만이면 반대 hemisphere의 급격한 축 반전 후보로
-판정한다. 서로 `dot >= 0.85`인 반대 방향 관측이 `3 frame` 연속될 때까지 이전 quaternion을 유지하고,
-연속 확인되면 새 방향을 채택한다. 정상적인 점진 회전은 매 frame 그대로 통과하며 EMA/SLERP로 저역 통과
-시키지 않는다. quaternion의 `q`와 `-q`는 같은 회전이므로 먼저 같은 quaternion hemisphere로 정규화하며,
-selector cardinality 변화·clock reset·state expiry에서는 position과 축 상태를 함께 reset한다.
+판정한다. CAM3·CAM4 live profile에서는 서로 `dot >= 0.85`이고 `orientation_valid == true`인 반대 방향
+관측이 `5 frame` 연속될 때만 새 방향을 채택한다. 저신뢰도 관측은 이전 방향을 유지할 뿐 아니라 연속 확인
+횟수도 초기화한다. selector cardinality 변화·clock reset·state expiry에서는 축 상태를 함께 reset한다.
+
+quaternion의 `q`와 `-q`는 같은 회전이므로 먼저 같은 quaternion hemisphere로 정규화한다. `1.5 degree`
+이내 각도 jitter는 이전 자세를 유지하고, 그 밖의 정상적인 점진 회전은 quaternion SLERP alpha `0.15`로
+평활화한다.
 
 이 안정화는 endpoint 판정 규칙을 변경하지 않고 그 결과의 일시적인 180도 flip만 제어용 TF에서 억제한다.
 따라서 raw quaternion과 endpoint confidence/status flag는 진단 및 offline tuning에 그대로 사용할 수 있다.

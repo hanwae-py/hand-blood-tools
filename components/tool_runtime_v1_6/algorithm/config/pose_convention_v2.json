@@ -53,7 +53,7 @@
       "name": "Bipolar Forceps",
       "negative_y_endpoint": "rigid proximal connector center",
       "positive_y_endpoint": "electrode-tip midpoint",
-      "initial_sign_estimator": "a non-hierarchical signed-vote ensemble combines connector taper (0.45), dark proximal colour (0.40 when available), and terminal mass (0.15); external wire geometry remains excluded; low ensemble confidence is reported instead of forcing a reliable sign",
+      "initial_sign_estimator": "a non-hierarchical signed-vote ensemble combines connector taper (0.45), black-handle/blue-tip colour agreement (0.40 when available), and terminal mass (0.15); a single detected colour cue is down-weighted; external wire geometry remains excluded; low ensemble confidence is reported instead of forcing a reliable sign",
       "excluded_geometry": ["cable", "hand"]
     },
     {
